@@ -1,0 +1,72 @@
+model User {
+    id           String     @id @default(uuid())
+    email        String     @unique
+    passwordHash String
+    name         String
+    roleId       String
+    role         Role       @relation(fields: [roleId], references: [id])
+    createdAt    DateTime   @default(now())
+    updatedAt    DateTime   @updatedAt
+    sessions     Session[]
+    auditLogs    AuditLog[]
+    resources    Resource[]
+}
+
+model Role {
+    id          String       @id @default(uuid())
+    name        String       @unique
+    description String?
+    permissions Permission[]
+    users       User[]
+}
+
+model Permission {
+    id       String @id @default(uuid())
+    action   String
+    resource String
+    roleId   String
+    role     Role   @relation(fields: [roleId], references: [id])
+}
+
+model Session {
+    id               String   @id @default(uuid())
+    userId           String
+    user             User     @relation(fields: [userId], references: [id])
+    refreshTokenHash String
+    ip               String?
+    userAgent        String?
+    createdAt        DateTime @default(now())
+    expiresAt        DateTime
+}
+
+model AuditLog {
+    id         String   @id @default(uuid())
+    userId     String?
+    action     String
+    resourceId String?
+    timestamp  DateTime @default(now())
+    ip         String?
+    user       User?    @relation(fields: [userId], references: [id])
+}
+
+model Resource {
+    id               String           @id @default(uuid())
+    title            String
+    content          String?
+    createdById      String
+    createdBy        User             @relation(fields: [createdById], references: [id])
+    createdAt        DateTime         @default(now())
+    updatedAt        DateTime         @updatedAt
+    resourceAccesses ResourceAccess[]
+}
+
+model ResourceAccess {
+    id         String   @id @default(uuid())
+    resourceId String
+    resource   Resource @relation(fields: [resourceId], references: [id])
+    userId     String?
+    roleId     String?
+    canRead    Boolean  @default(false)
+    canWrite   Boolean  @default(false)
+    canDelete  Boolean  @default(false)
+}
