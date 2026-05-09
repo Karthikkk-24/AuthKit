@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-primary: #09090b;
+    --bg-surface: #18181b;
+    --bg-elevated: #27272a;
+    --border: #3f3f46;
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent-blue: #3b82f6;
+    --accent-violet: #8b5cf6;
+    --accent-emerald: #10b981;
+    --accent-rose: #f43f5e;
+    --accent-amber: #f59e0b;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+}
+
+@layer components {
+  .glass {
+    background: rgba(24, 24, 27, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .card {
+    @apply bg-zinc-900 border border-zinc-800 rounded-xl p-5;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium text-sm
+           transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium text-sm
+           transition-all duration-150 border border-zinc-700 active:scale-95;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-green  { @apply badge bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30; }
+  .badge-red    { @apply badge bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30; }
+  .badge-blue   { @apply badge bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30; }
+  .badge-yellow { @apply badge bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30; }
+  .badge-gray   { @apply badge bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/30; }
+
+  .input {
+    @apply w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-100
+           placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50
+           focus:border-violet-500 transition-all;
+  }
+
+  .stat-card {
+    @apply card flex flex-col gap-3 hover:border-zinc-700 transition-colors;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-zinc-400
+           hover:text-zinc-100 hover:bg-zinc-800 transition-all cursor-pointer;
+  }
+
+  .nav-item-active {
+    @apply nav-item text-zinc-100 bg-zinc-800;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent;
+  }
+
+  .glow-violet {
+    box-shadow: 0 0 30px -5px theme('colors.violet.600');
+  }
+
+  .animate-in {
+    animation: fade-slide-in 0.25s ease-out both;
+  }
+
+  @keyframes fade-slide-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
