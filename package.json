@@ -17,7 +17,13 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "ts-node prisma/seed.ts",
+    "db:reset": "prisma migrate reset && ts-node prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "keys:generate": "node -e \"const {generateKeyPairSync}=require('crypto');const {writeFileSync,mkdirSync}=require('fs');mkdirSync('./keys',{recursive:true});const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:4096});writeFileSync('./keys/private.pem',privateKey.export({type:'pkcs8',format:'pem'}));writeFileSync('./keys/public.pem',publicKey.export({type:'spki',format:'pem'}));console.log('RSA keys written to ./keys/');\""
   },
   "dependencies": {
     "@nestjs/bull": "^11.0.4",
