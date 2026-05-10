@@ -13,6 +13,7 @@ import { WebhookService, WebhookEventType } from './webhook.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Webhooks')
 @ApiBearerAuth()
@@ -31,14 +32,15 @@ export class WebhookController {
       events: WebhookEventType[];
       description?: string;
     },
+    @CurrentUser() admin: any,
   ) {
-    return this.webhookService.registerEndpoint(body);
+    return this.webhookService.registerEndpoint(admin.id, body);
   }
 
   @Get('endpoints')
   @ApiOperation({ summary: 'List all webhook endpoints' })
-  list() {
-    return this.webhookService.listEndpoints();
+  list(@CurrentUser() admin: any) {
+    return this.webhookService.listEndpoints(admin.id);
   }
 
   @Patch('endpoints/:id/toggle')

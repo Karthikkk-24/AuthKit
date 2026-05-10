@@ -10,7 +10,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { GitHubStrategy } from './strategies/github.strategy';
 import { PrismaModule } from '../database/prisma/prisma.module';
-import { ConfigModule } from '../config/config.module';
+import { AppConfigModule } from '../config/config.module';
 import { EmailModule } from '../email/email.module';
 import { AuditModule } from '../audit/audit.module';
 import { RedisModule } from '../redis/redis.module';
@@ -22,13 +22,13 @@ import * as path from 'path';
 @Module({
   imports: [
     PrismaModule,
-    ConfigModule,
+    AppConfigModule,
     EmailModule,
     AuditModule,
     RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
-      imports: [ConfigModule],
+      imports: [AppConfigModule],
       inject: [ConfigLoaderService],
       useFactory: (config: ConfigLoaderService) => {
         const jwtConfig = config.get<any>('auth').jwt;

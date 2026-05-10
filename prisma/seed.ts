@@ -82,28 +82,14 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 async function main() {
   console.log('🌱 Seeding AuthKit database…\n');
 
-  // 1. Upsert all permissions
-  console.log('  → Creating permissions…');
-  const permMap: Record<string, string> = {}; // "resource:action" → id
-
-  for (const perm of PERMISSIONS) {
-    const p = await prisma.permission.upsert({
-      where: { resource_action: { resource: perm.resource, action: perm.action } },
-      update: { description: perm.description },
-      create: perm,
-    });
-    permMap[`${perm.resource}:${perm.action}`] = p.id;
-  }
-  console.log(`     ✔ ${PERMISSIONS.length} permissions`);
-
-  // 2. Create roles
+  // 1. Create roles
   console.log('  → Creating system roles…');
   const roleHierarchy = [
-    { name: 'guest',      displayName: 'Guest',      description: 'Unauthenticated / minimal access' },
-    { name: 'user',       displayName: 'User',        description: 'Standard authenticated user', parentName: 'guest' },
-    { name: 'moderator',  displayName: 'Moderator',   description: 'Content & user moderation', parentName: 'user' },
-    { name: 'admin',      displayName: 'Admin',        description: 'Platform administration', parentName: 'moderator' },
-    { name: 'superadmin', displayName: 'Super Admin',  description: 'Full unrestricted access', parentName: 'admin' },
+    { name: 'guest',      description: 'Unauthenticated / minimal access' },
+    { name: 'user',       description: 'Standard authenticated user', parentName: 'guest' },
+    { name: 'moderator',  description: 'Content & user moderation', parentName: 'user' },
+    { name: 'admin',      description: 'Platform administration', parentName: 'moderator' },
+    { name: 'superadmin', description: 'Full unrestricted access', parentName: 'admin' },
   ];
 
   const roleIds: Record<string, string> = {};
@@ -112,10 +98,9 @@ async function main() {
     const parentId = role.parentName ? roleIds[role.parentName] : undefined;
     const r = await prisma.role.upsert({
       where: { name: role.name },
-      update: { displayName: role.displayName, description: role.description },
+      update: { description: role.description },
       create: {
         name: role.name,
-        displayName: role.displayName,
         description: role.description,
         isSystem: true,
         parentId,
@@ -125,36 +110,46 @@ async function main() {
   }
   console.log(`     ✔ ${roleHierarchy.length} roles`);
 
-  // 3. Assign permissions to roles
+  // 2. Assign permissions to roles
   console.log('  → Assigning permissions to roles…');
   for (const [roleName, grants] of Object.entries(ROLE_PERMISSIONS)) {
     const roleId = roleIds[roleName];
     if (!roleId) continue;
 
-    // Expand wildcards
-    const permIds: string[] = [];
+    // Expand wildcards based on PERMISSIONS array
+    const permsToCreate: Array<{ resource: string; action: string }> = [];
     for (const grant of grants) {
       if (grant === '*:*') {
         // Superadmin: all permissions
-        permIds.push(...Object.values(permMap));
+        PERMISSIONS.forEach(p => permsToCreate.push({ resource: p.resource, action: p.action }));
       } else {
-        const id = permMap[grant];
-        if (id) permIds.push(id);
+        const [resource, action] = grant.split(':');
+        permsToCreate.push({ resource, action });
       }
     }
 
-    await prisma.role.update({
-      where: { id: roleId },
-      data: {
-        permissions: {
-          set: [...new Set(permIds)].map((id) => ({ id })),
+    // Deduplicate and upsert
+    for (const perm of permsToCreate) {
+      await prisma.permission.upsert({
+        where: {
+          action_resource_roleId: {
+            action: perm.action,
+            resource: perm.resource,
+            roleId: roleId,
+          }
         },
-      },
-    });
+        update: {},
+        create: {
+          action: perm.action,
+          resource: perm.resource,
+          roleId: roleId,
+        }
+      });
+    }
   }
   console.log('     ✔ Permissions assigned');
 
-  // 4. Superadmin user
+  // 3. Superadmin user
   console.log('  → Creating default superadmin…');
   const superadminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@authkit.dev';
   const superadminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin@AuthKit2025!';
@@ -172,7 +167,6 @@ async function main() {
       email: superadminEmail,
       name: 'Super Admin',
       passwordHash,
-      emailVerified: true,
       emailVerifiedAt: new Date(),
       roleId: roleIds['superadmin'],
     },

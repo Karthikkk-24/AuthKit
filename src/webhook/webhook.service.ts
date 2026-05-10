@@ -26,7 +26,7 @@ export class WebhookService {
   constructor(private readonly prisma: PrismaService) {}
 
   async dispatch(event: WebhookEventType, payload: Record<string, any>) {
-    const endpoints = await this.prisma.webhookEndpoint.findMany({
+    const endpoints = await this.prisma.webhook.findMany({
       where: {
         isActive: true,
         events: { has: event },
@@ -48,7 +48,7 @@ export class WebhookService {
     const signature = this.sign(endpoint.secret, body);
 
     try {
-      await axios.post(endpoint.url, body, {
+      const response = await axios.post(endpoint.url, body, {
         headers: {
           'Content-Type': 'application/json',
           'X-AuthKit-Event': event,
@@ -58,18 +58,29 @@ export class WebhookService {
         timeout: 10_000,
       });
 
-      await this.prisma.webhookEndpoint.update({
-        where: { id: endpoint.id },
-        data: { lastDeliveredAt: new Date(), failureCount: 0 },
+      await this.prisma.webhookDelivery.create({
+        data: {
+          webhookId: endpoint.id,
+          event,
+          payload,
+          statusCode: response.status,
+          success: true,
+        },
       });
 
       this.logger.log(`Webhook delivered: ${event} → ${endpoint.url}`);
-    } catch (err) {
+    } catch (err: any) {
       this.logger.warn(`Webhook failed: ${event} → ${endpoint.url}: ${err?.message}`);
 
-      await this.prisma.webhookEndpoint.update({
-        where: { id: endpoint.id },
-        data: { failureCount: { increment: 1 } },
+      await this.prisma.webhookDelivery.create({
+        data: {
+          webhookId: endpoint.id,
+          event,
+          payload,
+          statusCode: err.response?.status,
+          responseBody: err.response?.data ? JSON.stringify(err.response.data) : null,
+          success: false,
+        },
       });
     }
   }
@@ -82,48 +93,46 @@ export class WebhookService {
   }
 
   // ─── Endpoint management ───────────────────────────────────────────
-  async registerEndpoint(data: {
+  async registerEndpoint(userId: string, data: {
     url: string;
     events: WebhookEventType[];
     description?: string;
   }) {
     const secret = crypto.randomBytes(32).toString('hex');
-    const endpoint = await this.prisma.webhookEndpoint.create({
-      data: { ...data, secret, isActive: true },
+    const endpoint = await this.prisma.webhook.create({
+      data: { url: data.url, events: data.events, userId, secret, isActive: true },
     });
     // Return secret only on creation
     return { ...endpoint, secret };
   }
 
-  async listEndpoints() {
-    return this.prisma.webhookEndpoint.findMany({
+  async listEndpoints(userId: string) {
+    return this.prisma.webhook.findMany({
+      where: { userId },
       select: {
         id: true,
         url: true,
         events: true,
-        description: true,
         isActive: true,
-        failureCount: true,
-        lastDeliveredAt: true,
         createdAt: true,
       },
     });
   }
 
   async toggleEndpoint(id: string, isActive: boolean) {
-    return this.prisma.webhookEndpoint.update({
+    return this.prisma.webhook.update({
       where: { id },
       data: { isActive },
     });
   }
 
   async deleteEndpoint(id: string) {
-    return this.prisma.webhookEndpoint.delete({ where: { id } });
+    return this.prisma.webhook.delete({ where: { id } });
   }
 
   async rotateSecret(id: string) {
     const secret = crypto.randomBytes(32).toString('hex');
-    await this.prisma.webhookEndpoint.update({ where: { id }, data: { secret } });
+    await this.prisma.webhook.update({ where: { id }, data: { secret } });
     return { secret };
   }
 }

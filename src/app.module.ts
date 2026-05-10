@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { ConfigModule } from './config/config.module';
+import { AppConfigModule } from './config/config.module';
 import { PrismaModule } from './database/prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
@@ -20,7 +20,7 @@ import { MetricsModule } from './metrics/metrics.module';
 @Module({
   imports: [
     // ── Core configuration ──────────────────────────────────────────
-    ConfigModule,
+    AppConfigModule,
 
     // ── Database & Cache ────────────────────────────────────────────
     PrismaModule,

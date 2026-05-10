@@ -34,7 +34,7 @@ export class MetricsService {
       this.prisma.auditLog.count({
         where: { action: { contains: 'login' }, success: false, timestamp: { gte: dayAgo } },
       }),
-      this.prisma.user.count({ where: { mfaEnabled: true, deletedAt: null } }),
+      this.prisma.user.count({ where: { isMfaEnabled: true, deletedAt: null } }),
     ]);
 
     return {

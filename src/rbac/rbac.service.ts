@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
-export interface CreateRoleDto {
+export class CreateRoleDto {
   name: string;
   displayName?: string;
   description?: string;
@@ -14,7 +14,8 @@ export interface CreateRoleDto {
   isSystem?: boolean;
 }
 
-export interface CreatePermissionDto {
+export class CreatePermissionDto {
+  roleId: string;
   resource: string;
   action: string;
   description?: string;
@@ -177,42 +178,4 @@ export class RbacService {
     return this.prisma.permission.delete({ where: { id } });
   }
 
-  // ─── USER OVERRIDES ────────────────────────────────────────────────
-  async getUserPermissions(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        role: { include: { permissions: true } },
-        permissionOverrides: true,
-      },
-    });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
-  }
-
-  async addPermissionOverride(
-    userId: string,
-    permissionId: string,
-    granted: boolean,
-    adminId: string,
-    req: any,
-  ) {
-    await this.prisma.userPermissionOverride.upsert({
-      where: { userId_permissionId: { userId, permissionId } },
-      create: { userId, permissionId, granted },
-      update: { granted },
-    });
-
-    await this.audit.log({
-      action: 'user.permission_override',
-      userId: adminId,
-      resourceId: userId,
-      resourceType: 'user',
-      metadata: { permissionId, granted },
-      ip: req?.ip,
-      success: true,
-    });
-
-    return { message: 'Permission override applied' };
-  }
 }

@@ -1,20 +1,20 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigLoaderService } from '../config/config-loader.service';
-import { UserEntity } from './typeorm/entities/user.entity';
-import { RoleEntity } from './typeorm/entities/role.entity';
-import { PermissionEntity } from './typeorm/entities/permission.entity';
-import { SessionEntity } from './typeorm/entities/session.entity';
-import { ApiKeyEntity } from './typeorm/entities/api-key.entity';
-import { MfaCredentialEntity } from './typeorm/entities/mfa-credential.entity';
-import { ResourceEntity } from './typeorm/entities/resource.entity';
-import { ResourceAccessEntity } from './typeorm/entities/resource-access.entity';
-import { AuditLogEntity } from './typeorm/entities/audit-log.entity';
-import { EmailVerificationEntity } from './typeorm/entities/email-verification.entity';
-import { PasswordResetEntity } from './typeorm/entities/password-reset.entity';
-import { WebhookEntity } from './typeorm/entities/webhook.entity';
-import { WebhookDeliveryEntity } from './typeorm/entities/webhook-delivery.entity';
-import { IpBlockEntity } from './typeorm/entities/ip-block.entity';
+import { ConfigLoaderService } from '../../config/config-loader.service';
+import { UserEntity } from './entities/user.entity';
+import { RoleEntity } from './entities/role.entity';
+import { PermissionEntity } from './entities/permission.entity';
+import { SessionEntity } from './entities/session.entity';
+import { ApiKeyEntity } from './entities/api-key.entity';
+import { MfaCredentialEntity } from './entities/mfa-credential.entity';
+import { ResourceEntity } from './entities/resource.entity';
+import { ResourceAccessEntity } from './entities/resource-access.entity';
+import { AuditLogEntity } from './entities/audit-log.entity';
+import { EmailVerificationEntity } from './entities/email-verification.entity';
+import { PasswordResetEntity } from './entities/password-reset.entity';
+import { WebhookEntity } from './entities/webhook.entity';
+import { WebhookDeliveryEntity } from './entities/webhook-delivery.entity';
+import { IpBlockEntity } from './entities/ip-block.entity';
 
 @Global()
 @Module({

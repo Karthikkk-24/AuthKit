@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Request } from 'express';
+import type { Request } from 'express';
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
@@ -102,28 +102,4 @@ export class RbacController {
     return this.rbacService.deletePermission(id);
   }
 
-  // ─── USER OVERRIDES ────────────────────────────────────────────────
-  @Get('users/:userId/permissions')
-  @ApiOperation({ summary: 'Get effective permissions for a user' })
-  getUserPermissions(@Param('userId') userId: string) {
-    return this.rbacService.getUserPermissions(userId);
-  }
-
-  @Post('users/:userId/permissions/override')
-  @Roles('superadmin')
-  @ApiOperation({ summary: 'Grant or deny a specific permission for a user' })
-  addPermissionOverride(
-    @Param('userId') userId: string,
-    @Body() body: { permissionId: string; granted: boolean },
-    @CurrentUser() admin: any,
-    @Req() req: Request,
-  ) {
-    return this.rbacService.addPermissionOverride(
-      userId,
-      body.permissionId,
-      body.granted,
-      admin.id,
-      req,
-    );
-  }
 }

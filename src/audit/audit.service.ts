@@ -24,17 +24,20 @@ export class AuditService {
    */
   async log(input: AuditLogInput): Promise<void> {
     try {
+      const metadata = input.errorCode 
+        ? { ...input.metadata, errorCode: input.errorCode }
+        : input.metadata;
+
       await this.prisma.auditLog.create({
         data: {
           action: input.action,
           userId: input.userId,
           resourceId: input.resourceId,
           resourceType: input.resourceType,
-          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-          ipAddress: input.ip,
+          metadata: metadata ? metadata : undefined,
+          ip: input.ip,
           userAgent: input.userAgent,
           success: input.success,
-          errorCode: input.errorCode,
           timestamp: new Date(),
         },
       });
