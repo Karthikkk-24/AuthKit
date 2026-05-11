@@ -1,54 +1,209 @@
-model User {
-    id           String     @id @default(uuid())
-    email        String     @unique
-    passwordHash String
-    name         String
-    roleId       String
-    role         Role       @relation(fields: [roleId], references: [id])
-    createdAt    DateTime   @default(now())
-    updatedAt    DateTime   @updatedAt
-    sessions     Session[]
-    auditLogs    AuditLog[]
-    resources    Resource[]
+generator client {
+    provider = "prisma-client-js"
 }
 
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────
+model User {
+    id                  String    @id @default(uuid())
+    email               String    @unique
+    emailVerifiedAt     DateTime?
+    passwordHash        String?
+    name                String
+    avatarUrl           String?
+    roleId              String
+    role                Role      @relation(fields: [roleId], references: [id])
+
+    isLocked            Boolean   @default(false)
+    lockedAt            DateTime?
+    lockReason          String?
+    failedLoginAttempts Int       @default(0)
+    lastLoginAt         DateTime?
+    lastLoginIp         String?
+
+    isMfaEnabled        Boolean   @default(false)
+
+    // OAuth
+    googleId            String?   @unique
+    githubId            String?   @unique
+
+    createdAt           DateTime  @default(now())
+    updatedAt           DateTime  @updatedAt
+    deletedAt           DateTime? // soft delete
+
+    sessions            Session[]
+    auditLogs           AuditLog[]
+    resources           Resource[]
+    apiKeys             ApiKey[]
+    mfaCredentials      MfaCredential[]
+    emailVerifications  EmailVerification[]
+    passwordResets      PasswordReset[]
+    webhooks            Webhook[]
+}
+
+// ─────────────────────────────────────────────
+// ROLE
+// ─────────────────────────────────────────────
 model Role {
     id          String       @id @default(uuid())
     name        String       @unique
     description String?
+    isSystem    Boolean      @default(false) // cannot be deleted
+    parentId    String?                       // role hierarchy
+    parent      Role?        @relation("RoleHierarchy", fields: [parentId], references: [id])
+    children    Role[]       @relation("RoleHierarchy")
+
     permissions Permission[]
     users       User[]
+    createdAt   DateTime     @default(now())
+    updatedAt   DateTime     @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// PERMISSION
+// ─────────────────────────────────────────────
 model Permission {
     id       String @id @default(uuid())
-    action   String
-    resource String
+    action   String // e.g. "read", "write", "delete", "*"
+    resource String // e.g. "user", "post", "*"
     roleId   String
-    role     Role   @relation(fields: [roleId], references: [id])
+    role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+    @@unique([action, resource, roleId])
 }
 
+// ─────────────────────────────────────────────
+// SESSION
+// ─────────────────────────────────────────────
 model Session {
-    id               String   @id @default(uuid())
+    id               String    @id @default(uuid())
     userId           String
-    user             User     @relation(fields: [userId], references: [id])
+    user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
     refreshTokenHash String
+    isRevoked        Boolean   @default(false)
+    revokedAt        DateTime?
+
+    // Device metadata
     ip               String?
     userAgent        String?
-    createdAt        DateTime @default(now())
+    deviceName       String?
+    deviceType       String? // desktop, mobile, tablet
+    browser          String?
+    os               String?
+    country          String?
+    city             String?
+
+    lastActiveAt     DateTime  @default(now())
+    createdAt        DateTime  @default(now())
     expiresAt        DateTime
+
+    @@index([userId])
 }
 
+// ─────────────────────────────────────────────
+// API KEY
+// ─────────────────────────────────────────────
+model ApiKey {
+    id          String    @id @default(uuid())
+    userId      String
+    user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    name        String
+    keyHash     String    @unique   // hashed key
+    prefix      String              // first 8 chars shown in UI
+    scopes      String[]  @default([]) // e.g. ["read:users", "write:resources"]
+    isRevoked   Boolean   @default(false)
+    revokedAt   DateTime?
+    lastUsedAt  DateTime?
+    expiresAt   DateTime?
+    createdAt   DateTime  @default(now())
+
+    @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// MFA CREDENTIAL
+// ─────────────────────────────────────────────
+model MfaCredential {
+    id          String   @id @default(uuid())
+    userId      String
+    user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    type        MfaType
+    secret      String?  // TOTP secret (encrypted)
+    isEnabled   Boolean  @default(false)
+    backupCodes String[] @default([]) // hashed backup codes
+    verifiedAt  DateTime?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@unique([userId, type])
+}
+
+enum MfaType {
+    TOTP
+    EMAIL
+    SMS
+}
+
+// ─────────────────────────────────────────────
+// EMAIL VERIFICATION
+// ─────────────────────────────────────────────
+model EmailVerification {
+    id        String    @id @default(uuid())
+    userId    String
+    user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    tokenHash String    @unique
+    expiresAt DateTime
+    usedAt    DateTime?
+    createdAt DateTime  @default(now())
+
+    @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// PASSWORD RESET
+// ─────────────────────────────────────────────
+model PasswordReset {
+    id        String    @id @default(uuid())
+    userId    String
+    user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    tokenHash String    @unique
+    expiresAt DateTime
+    usedAt    DateTime?
+    createdAt DateTime  @default(now())
+
+    @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
 model AuditLog {
     id         String   @id @default(uuid())
     userId     String?
-    action     String
-    resourceId String?
-    timestamp  DateTime @default(now())
-    ip         String?
     user       User?    @relation(fields: [userId], references: [id])
+    action     String   // e.g. "auth.login", "user.created", "session.revoked"
+    resourceId String?
+    resourceType String?
+    metadata   Json?    // additional context
+    ip         String?
+    userAgent  String?
+    success    Boolean  @default(true)
+    timestamp  DateTime @default(now())
+
+    @@index([userId])
+    @@index([action])
+    @@index([timestamp])
 }
 
+// ─────────────────────────────────────────────
+// RESOURCE (Protected user content)
+// ─────────────────────────────────────────────
 model Resource {
     id               String           @id @default(uuid())
     title            String
@@ -60,13 +215,63 @@ model Resource {
     resourceAccesses ResourceAccess[]
 }
 
+// ─────────────────────────────────────────────
+// RESOURCE ACCESS (Per-resource ACL)
+// ─────────────────────────────────────────────
 model ResourceAccess {
     id         String   @id @default(uuid())
     resourceId String
-    resource   Resource @relation(fields: [resourceId], references: [id])
+    resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
     userId     String?
     roleId     String?
     canRead    Boolean  @default(false)
     canWrite   Boolean  @default(false)
     canDelete  Boolean  @default(false)
+
+    @@unique([resourceId, userId])
+    @@unique([resourceId, roleId])
+}
+
+// ─────────────────────────────────────────────
+// WEBHOOK
+// ─────────────────────────────────────────────
+model Webhook {
+    id          String           @id @default(uuid())
+    userId      String
+    user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+    url         String
+    secret      String           // HMAC signing secret
+    events      String[]         // e.g. ["user.created", "user.login"]
+    isActive    Boolean          @default(true)
+    createdAt   DateTime         @default(now())
+    updatedAt   DateTime         @updatedAt
+    deliveries  WebhookDelivery[]
+}
+
+model WebhookDelivery {
+    id           String    @id @default(uuid())
+    webhookId    String
+    webhook      Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+    event        String
+    payload      Json
+    statusCode   Int?
+    responseBody String?
+    attempts     Int       @default(0)
+    success      Boolean   @default(false)
+    nextRetryAt  DateTime?
+    createdAt    DateTime  @default(now())
+
+    @@index([webhookId])
+}
+
+// ─────────────────────────────────────────────
+// IP BLOCK
+// ─────────────────────────────────────────────
+model IpBlock {
+    id          String    @id @default(uuid())
+    ip          String    @unique
+    reason      String?
+    blockedById String?
+    expiresAt   DateTime?
+    createdAt   DateTime  @default(now())
 }
