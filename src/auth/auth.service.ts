@@ -122,6 +122,7 @@ export class AuthService {
       data: {
         userId,
         tokenHash,
+        purpose: 'email_verification',
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       },
     });
@@ -138,7 +139,9 @@ export class AuthService {
       where: { tokenHash },
     });
 
-    if (!record) throw new BadRequestException('Invalid verification token');
+    if (!record || record.purpose !== 'email_verification') {
+      throw new BadRequestException('Invalid verification token');
+    }
     if (record.usedAt) throw new BadRequestException('Token already used');
     if (record.expiresAt < new Date()) throw new BadRequestException('Token expired');
 
@@ -733,6 +736,13 @@ export class AuthService {
   // MAGIC LINK
   // ─────────────────────────────────────────────────────────────────────
   async sendMagicLink(email: string, req: any) {
+    if (
+      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isFeatureEnabled('magicLink')
+    ) {
+      throw new BadRequestException('Magic link authentication is disabled');
+    }
+
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || user.deletedAt) {
       return { message: 'If that email exists, a magic link has been sent' };
@@ -741,11 +751,11 @@ export class AuthService {
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    // Store as email verification record (reuse the table)
     await this.prisma.emailVerification.create({
       data: {
         userId: user.id,
         tokenHash,
+        purpose: 'magic_link',
         expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
       },
     });
@@ -755,15 +765,28 @@ export class AuthService {
   }
 
   async verifyMagicLink(token: string, req: any) {
+    if (
+      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isFeatureEnabled('magicLink')
+    ) {
+      throw new BadRequestException('Magic link authentication is disabled');
+    }
+
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const record = await this.prisma.emailVerification.findUnique({
       where: { tokenHash },
       include: { user: { include: { role: { include: { permissions: true } } } } },
     });
 
-    if (!record) throw new BadRequestException('Invalid magic link');
+    // Reject email-verification (and other) tokens — only magic_link may mint sessions.
+    if (!record || record.purpose !== 'magic_link') {
+      throw new BadRequestException('Invalid magic link');
+    }
     if (record.usedAt) throw new BadRequestException('Magic link already used');
     if (record.expiresAt < new Date()) throw new BadRequestException('Magic link expired');
+    if (record.user.deletedAt || record.user.isLocked) {
+      throw new UnauthorizedException('Account is not allowed to sign in');
+    }
 
     await this.prisma.emailVerification.update({
       where: { id: record.id },
