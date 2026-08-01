@@ -16,7 +16,9 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { Request } from 'express';
 
@@ -27,7 +29,6 @@ import type { Request } from 'express';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  // ─── SELF ──────────────────────────────────────────────────────────
   @Get('me')
   @ApiOperation({ summary: 'Get own profile' })
   getMe(@CurrentUser() user: any) {
@@ -65,10 +66,10 @@ export class UserController {
     return this.userService.exportData(user.id);
   }
 
-  // ─── ADMIN ─────────────────────────────────────────────────────────
   @Get()
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'read', resource: 'users' })
   @ApiOperation({ summary: 'List all users (admin)' })
   findAll(
     @Query('search') search?: string,
@@ -80,16 +81,18 @@ export class UserController {
   }
 
   @Get(':id')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'read', resource: 'users' })
   @ApiOperation({ summary: 'Get user by ID (admin)' })
   findOne(@Param('id') id: string) {
     return this.userService.findById(id);
   }
 
   @Patch(':id/role')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'update', resource: 'users' })
   @ApiOperation({ summary: 'Assign role to user (admin)' })
   assignRole(
     @Param('id') id: string,
@@ -101,8 +104,9 @@ export class UserController {
   }
 
   @Post(':id/lock')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'lock', resource: 'users' })
   @ApiOperation({ summary: 'Lock a user account (admin)' })
   lockUser(
     @Param('id') id: string,
@@ -114,8 +118,9 @@ export class UserController {
   }
 
   @Post(':id/unlock')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'lock', resource: 'users' })
   @ApiOperation({ summary: 'Unlock a user account (admin)' })
   unlockUser(
     @Param('id') id: string,
@@ -126,8 +131,9 @@ export class UserController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'delete', resource: 'users' })
   @ApiOperation({ summary: 'Soft-delete a user (admin)' })
   deleteUser(
     @Param('id') id: string,

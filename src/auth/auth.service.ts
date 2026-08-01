@@ -14,11 +14,10 @@ import { TokenBlacklistService } from './token-blacklist.service';
 import { EmailService } from '../email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
+import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 import { RegisterDto, LoginDto, ResetPasswordDto, ChangePasswordDto } from './dto/auth.dto';
 import * as crypto from 'crypto';
 import * as speakeasy from 'speakeasy';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @Injectable()
 export class AuthService {
@@ -32,7 +31,14 @@ export class AuthService {
     private readonly email: EmailService,
     private readonly audit: AuditService,
     private readonly config: ConfigLoaderService,
+    private readonly webhooks: WebhookService,
   ) {}
+
+  private emitWebhook(event: WebhookEventType, payload: Record<string, any>) {
+    void this.webhooks.dispatch(event, payload).catch((err) => {
+      this.logger.warn(`Webhook dispatch failed for ${event}: ${err?.message}`);
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────────────
   // REGISTRATION
@@ -106,6 +112,12 @@ export class AuthService {
       ip: req?.ip,
       userAgent: req?.headers?.['user-agent'],
       success: true,
+    });
+
+    this.emitWebhook('user.registered', {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
     });
 
     return { message: 'Registration successful. Please check your email to verify your account.' };
@@ -332,6 +344,12 @@ export class AuthService {
       success: true,
     });
 
+    this.emitWebhook('user.login', {
+      userId: user.id,
+      email: user.email,
+      sessionId: session.id,
+    });
+
     return {
       accessToken,
       refreshToken,
@@ -413,6 +431,8 @@ export class AuthService {
       userAgent: req?.headers?.['user-agent'],
       success: true,
     });
+
+    this.emitWebhook('user.logout', { userId, sessionId });
 
     return { message: 'Logged out successfully' };
   }
@@ -547,6 +567,8 @@ export class AuthService {
       success: true,
     });
 
+    this.emitWebhook('user.password_changed', { userId });
+
     return { message: 'Password changed successfully' };
   }
 
@@ -680,6 +702,8 @@ export class AuthService {
       }),
     ]);
 
+    this.emitWebhook('mfa.enabled', { userId, method: 'totp' });
+
     return { message: 'TOTP MFA enabled', backupCodes };
   }
 
@@ -730,6 +754,8 @@ export class AuthService {
         data: { isMfaEnabled: false },
       }),
     ]);
+
+    this.emitWebhook('mfa.disabled', { userId });
 
     return { message: 'MFA disabled' };
   }

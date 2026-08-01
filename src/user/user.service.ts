@@ -2,17 +2,27 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly webhooks: WebhookService,
   ) {}
+
+  private emitWebhook(event: WebhookEventType, payload: Record<string, any>) {
+    void this.webhooks.dispatch(event, payload).catch((err) => {
+      this.logger.warn(`Webhook dispatch failed for ${event}: ${err?.message}`);
+    });
+  }
 
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
@@ -71,8 +81,34 @@ export class UserService {
   }
 
   async assignRole(userId: string, roleId: string, adminId: string, req: any) {
-    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+    const [role, admin] = await Promise.all([
+      this.prisma.role.findUnique({ where: { id: roleId } }),
+      this.prisma.user.findUnique({
+        where: { id: adminId },
+        include: { role: true },
+      }),
+    ]);
     if (!role) throw new NotFoundException('Role not found');
+    if (!admin?.role) throw new ForbiddenException('Admin not found');
+
+    // Prevent privilege escalation: cannot assign a role at or above your own (#10)
+    const RANK: Record<string, number> = {
+      guest: 0,
+      user: 1,
+      moderator: 2,
+      admin: 3,
+      superadmin: 4,
+    };
+    const actorRank = RANK[admin.role.name] ?? -1;
+    const targetRank = RANK[role.name] ?? -1;
+    if (targetRank < 0 || actorRank < 0) {
+      throw new ForbiddenException('Unknown role hierarchy');
+    }
+    if (targetRank >= actorRank) {
+      throw new ForbiddenException(
+        'Cannot assign a role at or above your own privilege level',
+      );
+    }
 
     await this.prisma.user.update({ where: { id: userId }, data: { roleId } });
 
@@ -86,6 +122,13 @@ export class UserService {
       success: true,
     });
 
+    this.emitWebhook('role.assigned', {
+      userId,
+      roleId,
+      roleName: role.name,
+      adminId,
+    });
+
     return { message: 'Role assigned successfully' };
   }
 
@@ -93,6 +136,12 @@ export class UserService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { isLocked: true, lockedAt: new Date(), lockReason: reason },
+    });
+
+    // Invalidate all sessions so existing access JWTs fail session checks (#8)
+    await this.prisma.session.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date() },
     });
 
     await this.audit.log({
@@ -104,6 +153,8 @@ export class UserService {
       ip: req?.ip,
       success: true,
     });
+
+    this.emitWebhook('user.locked', { userId, reason, adminId });
 
     return { message: 'User locked' };
   }
@@ -122,6 +173,8 @@ export class UserService {
       ip: req?.ip,
       success: true,
     });
+
+    this.emitWebhook('user.unlocked', { userId, adminId });
 
     return { message: 'User unlocked' };
   }
@@ -149,6 +202,8 @@ export class UserService {
       ip: req?.ip,
       success: true,
     });
+
+    this.emitWebhook('user.deleted', { userId, adminId });
 
     return { message: 'User deleted' };
   }
@@ -179,6 +234,8 @@ export class UserService {
       ip: req?.ip,
       success: true,
     });
+
+    this.emitWebhook('session.revoked', { userId, sessionId });
 
     return { message: 'Session revoked' };
   }

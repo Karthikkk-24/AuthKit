@@ -1,6 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
+import { ConfigLoaderService } from '../config/config-loader.service';
 import * as crypto from 'crypto';
+import * as dns from 'dns/promises';
+import * as net from 'net';
 import axios from 'axios';
 
 export type WebhookEventType =
@@ -23,9 +31,19 @@ export type WebhookEventType =
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigLoaderService,
+  ) {}
+
+  private isDispatchEnabled(): boolean {
+    const wh = this.config.get<any>('webhooks');
+    return Boolean(wh?.enabled || this.config.isFeatureEnabled('webhooks'));
+  }
 
   async dispatch(event: WebhookEventType, payload: Record<string, any>) {
+    if (!this.isDispatchEnabled()) return;
+
     const endpoints = await this.prisma.webhook.findMany({
       where: {
         isActive: true,
@@ -39,6 +57,15 @@ export class WebhookService {
   }
 
   private async deliver(endpoint: any, event: string, payload: any) {
+    try {
+      await this.assertSafeWebhookUrl(endpoint.url);
+    } catch (err: any) {
+      this.logger.warn(
+        `Skipping webhook delivery to unsafe URL ${endpoint.url}: ${err?.message}`,
+      );
+      return;
+    }
+
     const body = JSON.stringify({
       event,
       timestamp: new Date().toISOString(),
@@ -56,6 +83,8 @@ export class WebhookService {
           'X-AuthKit-Timestamp': Date.now().toString(),
         },
         timeout: 10_000,
+        maxRedirects: 0,
+        validateStatus: (s) => s >= 200 && s < 300,
       });
 
       await this.prisma.webhookDelivery.create({
@@ -70,7 +99,9 @@ export class WebhookService {
 
       this.logger.log(`Webhook delivered: ${event} → ${endpoint.url}`);
     } catch (err: any) {
-      this.logger.warn(`Webhook failed: ${event} → ${endpoint.url}: ${err?.message}`);
+      this.logger.warn(
+        `Webhook failed: ${event} → ${endpoint.url}: ${err?.message}`,
+      );
 
       await this.prisma.webhookDelivery.create({
         data: {
@@ -78,7 +109,9 @@ export class WebhookService {
           event,
           payload,
           statusCode: err.response?.status,
-          responseBody: err.response?.data ? JSON.stringify(err.response.data) : null,
+          responseBody: err.response?.data
+            ? JSON.stringify(err.response.data)
+            : null,
           success: false,
         },
       });
@@ -92,17 +125,112 @@ export class WebhookService {
       .digest('hex')}`;
   }
 
+  /**
+   * Block SSRF to private/link-local/metadata hosts (#11).
+   * Re-checked at delivery time to mitigate DNS rebinding.
+   */
+  async assertSafeWebhookUrl(rawUrl: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      throw new BadRequestException('Invalid webhook URL');
+    }
+
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new BadRequestException('Webhook URL must be http(s)');
+    }
+
+    // HTTPS required unless explicitly allowed for local/dev
+    const allowHttp =
+      process.env.NODE_ENV !== 'production' ||
+      process.env.AUTHKIT_ALLOW_HTTP_WEBHOOKS === 'true';
+    if (parsed.protocol === 'http:' && !allowHttp) {
+      throw new BadRequestException('Webhook URL must use HTTPS');
+    }
+
+    if (parsed.username || parsed.password) {
+      throw new BadRequestException('Webhook URL must not include credentials');
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    const blockedHosts = new Set([
+      'localhost',
+      'metadata.google.internal',
+      'metadata.google.com',
+    ]);
+    if (
+      blockedHosts.has(hostname) ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal') ||
+      hostname === '0.0.0.0'
+    ) {
+      throw new BadRequestException('Webhook URL host is not allowed');
+    }
+
+    // Literal IP in hostname
+    if (net.isIP(hostname) && this.isPrivateIp(hostname)) {
+      throw new BadRequestException('Webhook URL must not target private IPs');
+    }
+
+    // Resolve DNS and reject private answers
+    try {
+      const results = await dns.lookup(hostname, { all: true, verbatim: true });
+      for (const r of results) {
+        if (this.isPrivateIp(r.address)) {
+          throw new BadRequestException(
+            'Webhook URL resolves to a private or reserved IP',
+          );
+        }
+      }
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException('Unable to resolve webhook URL host');
+    }
+  }
+
+  private isPrivateIp(ip: string): boolean {
+    if (ip === '::1' || ip === '0.0.0.0') return true;
+    if (ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80')) {
+      return true; // ULA / link-local v6 (simplified)
+    }
+
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
+      // Non-IPv4 (e.g. other IPv6) — treat unique local / link-local already handled
+      return false;
+    }
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local / cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+
   // ─── Endpoint management ───────────────────────────────────────────
-  async registerEndpoint(userId: string, data: {
-    url: string;
-    events: WebhookEventType[];
-    description?: string;
-  }) {
+  async registerEndpoint(
+    userId: string,
+    data: {
+      url: string;
+      events: WebhookEventType[];
+      description?: string;
+    },
+  ) {
+    await this.assertSafeWebhookUrl(data.url);
+
     const secret = crypto.randomBytes(32).toString('hex');
     const endpoint = await this.prisma.webhook.create({
-      data: { url: data.url, events: data.events, userId, secret, isActive: true },
+      data: {
+        url: data.url,
+        events: data.events,
+        userId,
+        secret,
+        isActive: true,
+      },
     });
-    // Return secret only on creation
     return { ...endpoint, secret };
   }
 
@@ -119,18 +247,29 @@ export class WebhookService {
     });
   }
 
-  async toggleEndpoint(id: string, isActive: boolean) {
-    return this.prisma.webhook.update({
-      where: { id },
+  async toggleEndpoint(id: string, userId: string, isActive: boolean) {
+    const result = await this.prisma.webhook.updateMany({
+      where: { id, userId },
       data: { isActive },
     });
+    if (result.count === 0) throw new NotFoundException('Webhook not found');
+    return { id, isActive };
   }
 
-  async deleteEndpoint(id: string) {
-    return this.prisma.webhook.delete({ where: { id } });
+  async deleteEndpoint(id: string, userId: string) {
+    const result = await this.prisma.webhook.deleteMany({
+      where: { id, userId },
+    });
+    if (result.count === 0) throw new NotFoundException('Webhook not found');
+    return { message: 'Webhook deleted' };
   }
 
-  async rotateSecret(id: string) {
+  async rotateSecret(id: string, userId: string) {
+    const existing = await this.prisma.webhook.findFirst({
+      where: { id, userId },
+    });
+    if (!existing) throw new NotFoundException('Webhook not found');
+
     const secret = crypto.randomBytes(32).toString('hex');
     await this.prisma.webhook.update({ where: { id }, data: { secret } });
     return { secret };

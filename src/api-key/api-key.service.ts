@@ -3,17 +3,28 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { WebhookService } from '../webhook/webhook.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class ApiKeyService {
+  private readonly logger = new Logger(ApiKeyService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly webhooks: WebhookService,
   ) {}
+
+  private emitWebhook(event: 'apikey.created' | 'apikey.revoked', payload: Record<string, any>) {
+    void this.webhooks.dispatch(event, payload).catch((err) => {
+      this.logger.warn(`Webhook dispatch failed for ${event}: ${err?.message}`);
+    });
+  }
 
   private generateKey(): { raw: string; prefix: string; hashed: string } {
     const raw = `ak_${crypto.randomBytes(32).toString('hex')}`;
@@ -57,6 +68,12 @@ export class ApiKeyService {
       success: true,
     });
 
+    this.emitWebhook('apikey.created', {
+      userId,
+      apiKeyId: apiKey.id,
+      name: dto.name,
+    });
+
     // Return raw key ONLY at creation time
     return { ...apiKey, key: raw };
   }
@@ -86,7 +103,7 @@ export class ApiKeyService {
 
     await this.prisma.apiKey.update({
       where: { id: keyId },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: new Date(), isRevoked: true },
     });
 
     await this.audit.log({
@@ -98,6 +115,8 @@ export class ApiKeyService {
       success: true,
     });
 
+    this.emitWebhook('apikey.revoked', { userId, apiKeyId: keyId });
+
     return { message: 'API key revoked' };
   }
 
@@ -105,7 +124,7 @@ export class ApiKeyService {
     const hashed = crypto.createHash('sha256').update(rawKey).digest('hex');
 
     const apiKey = await this.prisma.apiKey.findFirst({
-      where: { keyHash: hashed, revokedAt: null },
+      where: { keyHash: hashed, revokedAt: null, isRevoked: false },
       include: { user: { include: { role: { include: { permissions: true } } } } },
     });
 

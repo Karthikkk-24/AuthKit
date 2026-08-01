@@ -1,23 +1,71 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 describe('JwtAuthGuard', () => {
-  const makeGuard = (payload: any, blacklist = false) => {
+  const makeGuard = (opts: {
+    payload?: any;
+    blacklist?: boolean;
+    user?: any;
+    session?: any;
+  }) => {
     const reflector = {
       getAllAndOverride: jest.fn().mockReturnValue(false),
     };
     const jwtService = {
-      verifyAsync: jest.fn().mockResolvedValue(payload),
+      verifyAsync: jest.fn().mockResolvedValue(
+        opts.payload ?? {
+          sub: 'user-123',
+          email: 'a@b.com',
+          roleId: 'role-1',
+          roleName: 'admin',
+          sessionId: 'sess-1',
+        },
+      ),
     };
     const tokenBlacklist = {
-      isBlacklisted: jest.fn().mockResolvedValue(blacklist),
+      isBlacklisted: jest.fn().mockResolvedValue(opts.blacklist ?? false),
     };
     const config = {
       get: jest.fn().mockReturnValue({
-        algorithm: 'HS256',
-        issuer: 'authkit',
-        audience: 'authkit-clients',
+        jwt: {
+          algorithm: 'HS256',
+          issuer: 'authkit',
+          audience: 'authkit-clients',
+        },
       }),
+      isStrategyEnabled: jest.fn().mockReturnValue(true),
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(
+          opts.user === undefined
+            ? {
+                id: 'user-123',
+                email: 'a@b.com',
+                roleId: 'role-1',
+                isLocked: false,
+                deletedAt: null,
+              }
+            : opts.user,
+        ),
+      },
+      session: {
+        findUnique: jest.fn().mockResolvedValue(
+          opts.session === undefined
+            ? {
+                id: 'sess-1',
+                userId: 'user-123',
+                isRevoked: false,
+                expiresAt: new Date(Date.now() + 60_000),
+              }
+            : opts.session,
+        ),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      apiKey: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
     };
 
     return new JwtAuthGuard(
@@ -25,6 +73,7 @@ describe('JwtAuthGuard', () => {
       jwtService as any,
       tokenBlacklist as any,
       config as any,
+      prisma as any,
     );
   };
 
@@ -42,26 +91,50 @@ describe('JwtAuthGuard', () => {
   };
 
   it('maps JWT sub to user.id for controllers', async () => {
-    const guard = makeGuard({
-      sub: 'user-123',
-      email: 'a@b.com',
-      roleId: 'role-1',
-      roleName: 'admin',
-      sessionId: 'sess-1',
-    });
+    const guard = makeGuard({});
     const ctx = makeContext('Bearer tok');
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(ctx.__request.user).toMatchObject({
       id: 'user-123',
-      sub: 'user-123',
       email: 'a@b.com',
       roleName: 'admin',
       sessionId: 'sess-1',
     });
   });
 
+  it('rejects locked users', async () => {
+    const guard = makeGuard({
+      user: {
+        id: 'user-123',
+        email: 'a@b.com',
+        roleId: 'role-1',
+        isLocked: true,
+        deletedAt: null,
+      },
+    });
+    const ctx = makeContext('Bearer tok');
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('rejects revoked sessions', async () => {
+    const guard = makeGuard({
+      session: {
+        id: 'sess-1',
+        userId: 'user-123',
+        isRevoked: true,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const ctx = makeContext('Bearer tok');
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
   it('rejects tokens without sub', async () => {
-    const guard = makeGuard({ email: 'a@b.com' });
+    const guard = makeGuard({ payload: { email: 'a@b.com' } });
     const ctx = makeContext('Bearer tok');
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       UnauthorizedException,
@@ -69,7 +142,7 @@ describe('JwtAuthGuard', () => {
   });
 
   it('rejects missing bearer token', async () => {
-    const guard = makeGuard({ sub: 'user-123' });
+    const guard = makeGuard({});
     const ctx = makeContext();
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       UnauthorizedException,
