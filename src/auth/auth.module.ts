@@ -14,6 +14,7 @@ import { AppConfigModule } from '../config/config.module';
 import { EmailModule } from '../email/email.module';
 import { AuditModule } from '../audit/audit.module';
 import { RedisModule } from '../redis/redis.module';
+import { WebhookModule } from '../webhook/webhook.module';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import { resolveJwtKeys } from './jwt-keys.util';
 
@@ -25,6 +26,7 @@ import { resolveJwtKeys } from './jwt-keys.util';
     EmailModule,
     AuditModule,
     RedisModule,
+    WebhookModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [AppConfigModule],
