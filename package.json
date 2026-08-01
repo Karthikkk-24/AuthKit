@@ -26,6 +26,7 @@
     "keys:generate": "node -e \"const {generateKeyPairSync}=require('crypto');const {writeFileSync,mkdirSync}=require('fs');mkdirSync('./keys',{recursive:true});const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:4096});writeFileSync('./keys/private.pem',privateKey.export({type:'pkcs8',format:'pem'}));writeFileSync('./keys/public.pem',publicKey.export({type:'spki',format:'pem'}));console.log('RSA keys written to ./keys/');\""
   },
   "dependencies": {
+    "@nestjs-modules/ioredis": "^2.2.2",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/cache-manager": "^3.1.2",
@@ -43,6 +44,7 @@
     "@prisma/client": "^6.4.1",
     "@types/pg": "^8.20.0",
     "argon2": "^0.44.0",
+    "axios": "^1.16.0",
     "bull": "^4.16.5",
     "cache-manager": "^7.2.8",
     "cache-manager-ioredis-yet": "^2.1.2",
