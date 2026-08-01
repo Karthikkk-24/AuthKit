@@ -47,8 +47,24 @@ export class JwtAuthGuard implements CanActivate {
         issuer: jwtConfig.issuer,
         audience: jwtConfig.audience,
       });
-      request['user'] = payload;
-    } catch {
+
+      // Normalize JWT claims to the shape controllers expect (`user.id`).
+      // Tokens are signed with `sub` as the user id; without this mapping,
+      // `user.id` is undefined and Prisma ownership filters are dropped (IDOR).
+      if (!payload?.sub || typeof payload.sub !== 'string') {
+        throw new UnauthorizedException('Invalid token payload');
+      }
+
+      request['user'] = {
+        ...payload,
+        id: payload.sub,
+        email: payload.email,
+        roleId: payload.roleId,
+        roleName: payload.roleName,
+        sessionId: payload.sessionId,
+      };
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid or expired token');
     }
 

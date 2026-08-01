@@ -190,14 +190,12 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
-  @ApiOperation({ summary: 'Google OAuth callback' })
+  @ApiOperation({ summary: 'Google OAuth callback — redirects with one-time code' })
   async googleCallback(@Req() req: any, @Res() res: Response) {
-    const tokens = await this.authService.createTokens(req.user, req);
-    // Redirect to frontend with tokens
+    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    res.redirect(
-      `${frontendUrl}/auth/oauth-success?token=${tokens.accessToken}&refresh=${tokens.refreshToken}`,
-    );
+    // Never put access/refresh tokens in the URL — exchange via POST /auth/oauth/exchange
+    res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
   }
 
   @Public()
@@ -211,13 +209,21 @@ export class AuthController {
   @Public()
   @Get('github/callback')
   @UseGuards(AuthGuard('github'))
-  @ApiOperation({ summary: 'GitHub OAuth callback' })
+  @ApiOperation({ summary: 'GitHub OAuth callback — redirects with one-time code' })
   async githubCallback(@Req() req: any, @Res() res: Response) {
-    const tokens = await this.authService.createTokens(req.user, req);
+    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-    res.redirect(
-      `${frontendUrl}/auth/oauth-success?token=${tokens.accessToken}&refresh=${tokens.refreshToken}`,
-    );
+    res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
+  }
+
+  @Public()
+  @Post('oauth/exchange')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange OAuth one-time code for access and refresh tokens',
+  })
+  exchangeOAuthCode(@Body() body: { code: string }, @Req() req: Request) {
+    return this.authService.exchangeOAuthCode(body.code, req);
   }
 
   // ─── ME ────────────────────────────────────────────────────────────
