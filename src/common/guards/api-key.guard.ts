@@ -33,7 +33,9 @@ export class ApiKeyGuard implements CanActivate {
     });
 
     if (!apiKey) throw new UnauthorizedException('Invalid API key');
-    if (apiKey.isRevoked) throw new ForbiddenException('API key has been revoked');
+    if (apiKey.isRevoked || apiKey.revokedAt) {
+      throw new ForbiddenException('API key has been revoked');
+    }
     if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
       throw new ForbiddenException('API key has expired');
     }
