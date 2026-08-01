@@ -583,7 +583,7 @@ export class AuthService {
         // Silent email-based linking enables account takeover if an attacker
         // controls an OAuth identity for the victim's email address.
         throw new ConflictException(
-          `An account with this email already exists. Sign in with your password and link ${profile.provider} from account settings.`,
+          `An account with this email already exists. Sign in with your existing credentials instead of linking via ${profile.provider} automatically.`,
         );
       }
     }
