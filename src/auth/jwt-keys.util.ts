@@ -10,6 +10,9 @@ export type JwtKeyMaterial = {
   algorithm: string;
 };
 
+/** Process-wide cache so AuthModule + JwtStrategy share the same ephemeral keys. */
+let cachedKeys: JwtKeyMaterial | null = null;
+
 /**
  * Resolve JWT signing/verification keys without a hardcoded fallback secret.
  *
@@ -18,6 +21,10 @@ export type JwtKeyMaterial = {
  * - Development only: may generate ephemeral RSA keys or a random HS secret for the process
  */
 export function resolveJwtKeys(algorithm: string): JwtKeyMaterial {
+  if (cachedKeys && cachedKeys.algorithm === algorithm) {
+    return cachedKeys;
+  }
+
   const isRsa = algorithm.startsWith('RS');
   const isProd =
     process.env.NODE_ENV === 'production' ||
@@ -26,64 +33,67 @@ export function resolveJwtKeys(algorithm: string): JwtKeyMaterial {
   const privKeyPath = path.resolve(process.cwd(), 'keys', 'private.pem');
   const pubKeyPath = path.resolve(process.cwd(), 'keys', 'public.pem');
 
+  let keys: JwtKeyMaterial;
+
   if (isRsa) {
     if (fs.existsSync(privKeyPath) && fs.existsSync(pubKeyPath)) {
-      return {
+      keys = {
         secret: fs.readFileSync(privKeyPath),
         publicKey: fs.readFileSync(pubKeyPath),
         algorithm,
       };
-    }
-
-    if (isProd) {
+    } else if (isProd) {
       throw new Error(
         `JWT algorithm ${algorithm} requires RSA keys at ./keys/private.pem and ./keys/public.pem. ` +
           `Run: npm run keys:generate`,
       );
+    } else {
+      const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+      });
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[AuthKit] RSA key files missing — using ephemeral in-memory RSA keys for development. ' +
+          'Run `npm run keys:generate` for stable tokens across restarts.',
+      );
+      keys = {
+        secret: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+        publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
+        algorithm,
+      };
     }
-
-    // Dev fallback: ephemeral in-memory RSA key pair (not persisted, not shared across restarts)
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-    });
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[AuthKit] RSA key files missing — using ephemeral in-memory RSA keys for development. ' +
-        'Run `npm run keys:generate` for stable tokens across restarts.',
-    );
-    return {
-      secret: privateKey.export({ type: 'pkcs8', format: 'pem' }),
-      publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
-      algorithm,
-    };
-  }
-
-  // HMAC algorithms
-  const envSecret = process.env.JWT_SECRET;
-  if (envSecret && envSecret.length >= 32) {
-    return { secret: envSecret, publicKey: envSecret, algorithm };
-  }
-
-  if (isProd) {
-    throw new Error(
-      `JWT algorithm ${algorithm} requires JWT_SECRET (min 32 chars). ` +
-        `Do not use hardcoded defaults.`,
-    );
-  }
-
-  if (envSecret && envSecret.length < 32) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[AuthKit] JWT_SECRET is shorter than 32 characters — generating an ephemeral secret for development.',
-    );
   } else {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[AuthKit] JWT_SECRET not set — generating an ephemeral secret for development. ' +
-        'Set JWT_SECRET (32+ chars) or use RS256 with ./keys/*.pem.',
-    );
+    const envSecret = process.env.JWT_SECRET;
+    if (envSecret && envSecret.length >= 32) {
+      keys = { secret: envSecret, publicKey: envSecret, algorithm };
+    } else if (isProd) {
+      throw new Error(
+        `JWT algorithm ${algorithm} requires JWT_SECRET (min 32 chars). ` +
+          `Do not use hardcoded defaults.`,
+      );
+    } else {
+      if (envSecret && envSecret.length < 32) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[AuthKit] JWT_SECRET is shorter than 32 characters — generating an ephemeral secret for development.',
+        );
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[AuthKit] JWT_SECRET not set — generating an ephemeral secret for development. ' +
+            'Set JWT_SECRET (32+ chars) or use RS256 with ./keys/*.pem.',
+        );
+      }
+      const ephemeral = crypto.randomBytes(48).toString('hex');
+      keys = { secret: ephemeral, publicKey: ephemeral, algorithm };
+    }
   }
 
-  const ephemeral = crypto.randomBytes(48).toString('hex');
-  return { secret: ephemeral, publicKey: ephemeral, algorithm };
+  cachedKeys = keys;
+  return keys;
+}
+
+/** Test-only helper to clear cached keys between cases. */
+export function resetJwtKeysCacheForTests(): void {
+  cachedKeys = null;
 }
