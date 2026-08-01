@@ -15,8 +15,7 @@ import { EmailModule } from '../email/email.module';
 import { AuditModule } from '../audit/audit.module';
 import { RedisModule } from '../redis/redis.module';
 import { ConfigLoaderService } from '../config/config-loader.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { resolveJwtKeys } from './jwt-keys.util';
 
 @Global()
 @Module({
@@ -32,23 +31,23 @@ import * as path from 'path';
       inject: [ConfigLoaderService],
       useFactory: (config: ConfigLoaderService) => {
         const jwtConfig = config.get<any>('auth').jwt;
-
-        // Try RSA private key for RS256
-        const privKeyPath = path.resolve(process.cwd(), 'keys', 'private.pem');
-        let secret: string | Buffer;
-        if (fs.existsSync(privKeyPath)) {
-          secret = fs.readFileSync(privKeyPath);
-        } else {
-          secret = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-        }
+        const keys = resolveJwtKeys(jwtConfig.algorithm);
 
         return {
-          secret,
+          privateKey: keys.secret,
+          publicKey: keys.publicKey,
+          // Nest JwtModule also accepts `secret` for HS*; keep dual for compatibility
+          secret: keys.secret,
           signOptions: {
             algorithm: jwtConfig.algorithm,
             issuer: jwtConfig.issuer,
             audience: jwtConfig.audience,
             expiresIn: jwtConfig.accessTokenExpiry,
+          },
+          verifyOptions: {
+            algorithms: [jwtConfig.algorithm],
+            issuer: jwtConfig.issuer,
+            audience: jwtConfig.audience,
           },
         };
       },
