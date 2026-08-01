@@ -14,13 +14,15 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RbacService, CreateRoleDto, CreatePermissionDto } from './rbac.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { Request } from 'express';
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles('superadmin', 'admin')
 @Controller('rbac')
 export class RbacController {
@@ -28,6 +30,7 @@ export class RbacController {
 
   // ─── ROLES ─────────────────────────────────────────────────────────
   @Post('roles')
+  @RequirePermissions({ action: 'update', resource: 'roles' })
   @ApiOperation({ summary: 'Create a role' })
   createRole(
     @Body() body: CreateRoleDto,
@@ -38,18 +41,21 @@ export class RbacController {
   }
 
   @Get('roles')
+  @RequirePermissions({ action: 'read', resource: 'roles' })
   @ApiOperation({ summary: 'List all roles' })
   getRoles() {
     return this.rbacService.getRoles();
   }
 
   @Get('roles/:id')
+  @RequirePermissions({ action: 'read', resource: 'roles' })
   @ApiOperation({ summary: 'Get a role with permissions' })
   getRole(@Param('id') id: string) {
     return this.rbacService.getRole(id);
   }
 
   @Patch('roles/:id')
+  @RequirePermissions({ action: 'update', resource: 'roles' })
   @ApiOperation({ summary: 'Update a role' })
   updateRole(
     @Param('id') id: string,
@@ -62,6 +68,7 @@ export class RbacController {
 
   @Delete('roles/:id')
   @Roles('superadmin')
+  @RequirePermissions({ action: 'delete', resource: 'roles' })
   @ApiOperation({ summary: 'Delete a role (superadmin only)' })
   deleteRole(
     @Param('id') id: string,
@@ -72,6 +79,7 @@ export class RbacController {
   }
 
   @Patch('roles/:id/permissions')
+  @RequirePermissions({ action: 'update', resource: 'roles' })
   @ApiOperation({ summary: 'Assign permissions to a role (replaces existing)' })
   assignPermissions(
     @Param('id') id: string,
@@ -90,6 +98,7 @@ export class RbacController {
   }
 
   @Get('permissions')
+  @RequirePermissions({ action: 'read', resource: 'permissions' })
   @ApiOperation({ summary: 'List permissions (optionally filter by resource)' })
   getPermissions(@Query('resource') resource?: string) {
     return this.rbacService.getPermissions(resource);
@@ -97,6 +106,7 @@ export class RbacController {
 
   @Delete('permissions/:id')
   @Roles('superadmin')
+  @RequirePermissions({ action: 'delete', resource: 'permissions' })
   @ApiOperation({ summary: 'Delete a permission (superadmin only)' })
   deletePermission(@Param('id') id: string) {
     return this.rbacService.deletePermission(id);
