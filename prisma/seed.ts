@@ -152,7 +152,32 @@ async function main() {
   // 3. Superadmin user
   console.log('  → Creating default superadmin…');
   const superadminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@authkit.dev';
-  const superadminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin@AuthKit2025!';
+  const defaultPublishedPassword = 'Admin@AuthKit2025!';
+  const superadminPassword = process.env.SEED_ADMIN_PASSWORD ?? defaultPublishedPassword;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd) {
+    if (!process.env.SEED_ADMIN_PASSWORD) {
+      throw new Error(
+        'SEED_ADMIN_PASSWORD is required when seeding in production. ' +
+          'Do not use the published default password.',
+      );
+    }
+    if (superadminPassword === defaultPublishedPassword) {
+      throw new Error(
+        'Refusing to seed production with the published default SEED_ADMIN_PASSWORD. ' +
+          'Choose a unique strong password.',
+      );
+    }
+  } else if (
+    !process.env.SEED_ADMIN_PASSWORD ||
+    superadminPassword === defaultPublishedPassword
+  ) {
+    console.warn(
+      '     ⚠  Using published default admin password — set SEED_ADMIN_PASSWORD before any shared/prod deploy.',
+    );
+  }
+
   const passwordHash = await argon2.hash(superadminPassword, {
     type: argon2.argon2id,
     memoryCost: 65536,
@@ -173,7 +198,9 @@ async function main() {
   });
 
   console.log(`     ✔ Superadmin: ${superadminEmail}`);
-  console.log(`     ⚠  Change the default password immediately in production!\n`);
+  if (!isProd) {
+    console.log(`     ⚠  Change the default password immediately if this is not a throwaway local DB.\n`);
+  }
   console.log('✅ Seed complete!');
 }
 
