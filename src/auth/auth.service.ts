@@ -562,46 +562,48 @@ export class AuthService {
   }) {
     const providerField = profile.provider === 'google' ? 'googleId' : 'githubId';
 
-    // Try to find by provider ID
+    // Try to find by provider ID (already-linked account)
     let user = await this.prisma.user.findFirst({
       where: { [providerField]: profile.providerId },
       include: { role: { include: { permissions: true } } },
     });
 
-    if (!user && profile.email) {
-      // Try to find by email and link account
-      user = await this.prisma.user.findUnique({
+    if (user) {
+      return user;
+    }
+
+    if (profile.email) {
+      const existingByEmail = await this.prisma.user.findUnique({
         where: { email: profile.email },
         include: { role: { include: { permissions: true } } },
       });
 
-      if (user) {
-        // Link OAuth to existing account
-        await this.prisma.user.update({
-          where: { id: user.id },
-          data: { [providerField]: profile.providerId },
-        });
+      if (existingByEmail) {
+        // Do NOT silently link OAuth to an existing password/email account.
+        // Silent email-based linking enables account takeover if an attacker
+        // controls an OAuth identity for the victim's email address.
+        throw new ConflictException(
+          `An account with this email already exists. Sign in with your password and link ${profile.provider} from account settings.`,
+        );
       }
     }
 
-    if (!user) {
-      // Create new OAuth user
-      const defaultRole = await this.prisma.role.findUnique({
-        where: { name: 'user' },
-      });
+    // Create new OAuth-only user
+    const defaultRole = await this.prisma.role.findUnique({
+      where: { name: 'user' },
+    });
 
-      user = await this.prisma.user.create({
-        data: {
-          email: profile.email,
-          name: profile.name,
-          avatarUrl: profile.avatarUrl,
-          emailVerifiedAt: new Date(), // OAuth emails are pre-verified
-          roleId: defaultRole!.id,
-          [providerField]: profile.providerId,
-        },
-        include: { role: { include: { permissions: true } } },
-      });
-    }
+    user = await this.prisma.user.create({
+      data: {
+        email: profile.email,
+        name: profile.name,
+        avatarUrl: profile.avatarUrl,
+        emailVerifiedAt: new Date(), // OAuth emails are pre-verified by the provider
+        roleId: defaultRole!.id,
+        [providerField]: profile.providerId,
+      },
+      include: { role: { include: { permissions: true } } },
+    });
 
     return user;
   }
@@ -784,6 +786,59 @@ export class AuthService {
     }
     if (record.usedAt) throw new BadRequestException('Magic link already used');
     if (record.expiresAt < new Date()) throw new BadRequestException('Magic link expired');
+    if (record.user.deletedAt || record.user.isLocked) {
+      throw new UnauthorizedException('Account is not allowed to sign in');
+    }
+
+    await this.prisma.emailVerification.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    });
+
+    return this.createTokens(record.user, req);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // OAUTH ONE-TIME CODE EXCHANGE (no tokens in redirect URLs)
+  // ─────────────────────────────────────────────────────────────────────
+  /**
+   * After OAuth callback, store a short-lived one-time code instead of
+   * putting access/refresh tokens in the redirect query string.
+   */
+  async createOAuthExchangeCode(userId: string): Promise<string> {
+    const code = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    await this.prisma.emailVerification.create({
+      data: {
+        userId,
+        tokenHash,
+        purpose: 'oauth_exchange',
+        expiresAt: new Date(Date.now() + 60 * 1000), // 60 seconds
+      },
+    });
+
+    return code;
+  }
+
+  async exchangeOAuthCode(code: string, req: any) {
+    if (!code || typeof code !== 'string') {
+      throw new BadRequestException('Invalid OAuth exchange code');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(code).digest('hex');
+    const record = await this.prisma.emailVerification.findUnique({
+      where: { tokenHash },
+      include: { user: { include: { role: { include: { permissions: true } } } } },
+    });
+
+    if (!record || record.purpose !== 'oauth_exchange') {
+      throw new BadRequestException('Invalid or expired OAuth exchange code');
+    }
+    if (record.usedAt) throw new BadRequestException('OAuth exchange code already used');
+    if (record.expiresAt < new Date()) {
+      throw new BadRequestException('OAuth exchange code expired');
+    }
     if (record.user.deletedAt || record.user.isLocked) {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
