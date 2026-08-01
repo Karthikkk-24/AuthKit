@@ -27,9 +27,11 @@ describe('JwtAuthGuard', () => {
     };
     const config = {
       get: jest.fn().mockReturnValue({
-        algorithm: 'HS256',
-        issuer: 'authkit',
-        audience: 'authkit-clients',
+        jwt: {
+          algorithm: 'HS256',
+          issuer: 'authkit',
+          audience: 'authkit-clients',
+        },
       }),
       isStrategyEnabled: jest.fn().mockReturnValue(true),
     };

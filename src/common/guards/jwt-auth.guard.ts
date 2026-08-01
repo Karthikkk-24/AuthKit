@@ -52,83 +52,77 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token has been revoked');
     }
 
+    let payload: any;
     try {
       const jwtConfig = this.config.get<any>('auth').jwt;
-      const payload = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         algorithms: [jwtConfig.algorithm],
         issuer: jwtConfig.issuer,
         audience: jwtConfig.audience,
       });
-
-      if (!payload?.sub || typeof payload.sub !== 'string') {
-        throw new UnauthorizedException('Invalid token payload');
-      }
-
-      // Reject locked / soft-deleted users and revoked sessions (#8)
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: {
-          id: true,
-          email: true,
-          roleId: true,
-          isLocked: true,
-          deletedAt: true,
-        },
-      });
-
-      if (!user || user.deletedAt) {
-        throw new UnauthorizedException('Account not found');
-      }
-      if (user.isLocked) {
-        throw new ForbiddenException('Account is locked');
-      }
-
-      if (payload.sessionId) {
-        const session = await this.prisma.session.findUnique({
-          where: { id: payload.sessionId },
-          select: {
-            id: true,
-            userId: true,
-            isRevoked: true,
-            expiresAt: true,
-          },
-        });
-        if (
-          !session ||
-          session.userId !== user.id ||
-          session.isRevoked ||
-          session.expiresAt < new Date()
-        ) {
-          throw new UnauthorizedException('Session has been revoked');
-        }
-
-        // Best-effort lastActiveAt touch (non-blocking)
-        this.prisma.session
-          .update({
-            where: { id: session.id },
-            data: { lastActiveAt: new Date() },
-          })
-          .catch(() => {});
-      }
-
-      request['user'] = {
-        ...payload,
-        id: user.id,
-        email: user.email,
-        roleId: user.roleId,
-        roleName: payload.roleName,
-        sessionId: payload.sessionId,
-        isApiKeyAuth: false,
-      };
-    } catch (err) {
-      if (
-        err instanceof UnauthorizedException ||
-        err instanceof ForbiddenException
-      ) {
-        throw err;
-      }
+    } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
+
+    if (!payload?.sub || typeof payload.sub !== 'string') {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    // Reject locked / soft-deleted users and revoked sessions (#8)
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        roleId: true,
+        isLocked: true,
+        deletedAt: true,
+      },
+    });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Account not found');
+    }
+    if (user.isLocked) {
+      throw new ForbiddenException('Account is locked');
+    }
+
+    if (payload.sessionId) {
+      const session = await this.prisma.session.findUnique({
+        where: { id: payload.sessionId },
+        select: {
+          id: true,
+          userId: true,
+          isRevoked: true,
+          expiresAt: true,
+        },
+      });
+      if (
+        !session ||
+        session.userId !== user.id ||
+        session.isRevoked ||
+        session.expiresAt < new Date()
+      ) {
+        throw new UnauthorizedException('Session has been revoked');
+      }
+
+      this.prisma.session
+        .update({
+          where: { id: session.id },
+          data: { lastActiveAt: new Date() },
+        })
+        .catch(() => {});
+    }
+
+    request['user'] = {
+      ...payload,
+      id: user.id,
+      email: user.email,
+      roleId: user.roleId,
+      roleName: payload.roleName,
+      sessionId: payload.sessionId,
+      isApiKeyAuth: false,
+    };
 
     return true;
   }
