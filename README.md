@@ -28,7 +28,7 @@
 | **MFA** | TOTP (authenticator apps), Email OTP |
 | **RBAC** | Hierarchical roles, granular permissions, wildcard matching, per-user overrides |
 | **Security** | Argon2id hashing, Pwned password check (HIBP), JWT blacklisting, rate limiting, Helmet CSP |
-| **Sessions** | Multi-device tracking, remote revocation, Redis-backed |
+| **Sessions** | Multi-device tracking, remote revocation, inactivity auto-revoke (Postgres-backed; Redis used for JWT blacklist / OTP) |
 | **API Keys** | SHA-256 hashed, scoped, expiring, revocable |
 | **Audit Logs** | Structured event log, metadata, IP/UA capture, CSV export |
 | **Webhooks** | HMAC-SHA256 signed delivery, retry backoff, secret rotation |
