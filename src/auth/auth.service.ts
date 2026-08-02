@@ -537,7 +537,7 @@ export class AuthService {
     return { message: 'Password reset successfully. Please log in with your new password.' };
   }
 
-  async changePassword(userId: string, dto: ChangePasswordDto, req: any) {
+  async changePassword(userId: string, dto: ChangePasswordDto, req: any, currentSessionId?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.passwordHash) {
       throw new BadRequestException('Cannot change password for OAuth-only accounts');
@@ -555,21 +555,35 @@ export class AuthService {
     }
 
     const newHash = await this.passwordService.hash(dto.newPassword);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: newHash },
-    });
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: newHash },
+      }),
+      // Revoke every *other* session so a stolen session dies on password change (#21).
+      // The session performing the change stays valid (conventional UX).
+      this.prisma.session.updateMany({
+        where: {
+          userId,
+          isRevoked: false,
+          ...(currentSessionId ? { id: { not: currentSessionId } } : {}),
+        },
+        data: { isRevoked: true, revokedAt: new Date() },
+      }),
+    ]);
 
     await this.audit.log({
       action: 'auth.password_changed',
       userId,
       ip: req?.ip,
+      metadata: { revokedOtherSessions: true },
       success: true,
     });
 
     this.emitWebhook('user.password_changed', { userId });
 
-    return { message: 'Password changed successfully' };
+    return { message: 'Password changed successfully. Other sessions have been signed out.' };
   }
 
   // ─────────────────────────────────────────────────────────────────────

@@ -151,9 +151,9 @@ export class AuthController {
   @Patch('change-password')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Change password (requires current password)' })
+  @ApiOperation({ summary: 'Change password (requires current password); revokes other sessions' })
   changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto, @Req() req: Request) {
-    return this.authService.changePassword(user.id, dto, req);
+    return this.authService.changePassword(user.id, dto, req, user.sessionId);
   }
 
   // ─── MFA ───────────────────────────────────────────────────────────
