@@ -95,6 +95,7 @@ export class JwtAuthGuard implements CanActivate {
           userId: true,
           isRevoked: true,
           expiresAt: true,
+          lastActiveAt: true,
         },
       });
       if (
@@ -104,6 +105,23 @@ export class JwtAuthGuard implements CanActivate {
         session.expiresAt < new Date()
       ) {
         throw new UnauthorizedException('Session has been revoked');
+      }
+
+      // Auto-revoke sessions that have been idle longer than the configured
+      // inactivity window (#31).
+      const sessionCfg = this.config.get<any>('session') ?? {};
+      if (sessionCfg.autoRevokeInactiveSessions && sessionCfg.inactivityTimeoutDays > 0) {
+        const idleMs = Date.now() - session.lastActiveAt.getTime();
+        const maxIdleMs = sessionCfg.inactivityTimeoutDays * 24 * 60 * 60 * 1000;
+        if (idleMs > maxIdleMs) {
+          await this.prisma.session
+            .update({
+              where: { id: session.id },
+              data: { isRevoked: true, revokedAt: new Date() },
+            })
+            .catch(() => {});
+          throw new UnauthorizedException('Session expired due to inactivity');
+        }
       }
 
       this.prisma.session
