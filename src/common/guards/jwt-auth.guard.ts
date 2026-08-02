@@ -207,9 +207,9 @@ export class JwtAuthGuard implements CanActivate {
     if (authHeader?.startsWith('Bearer ')) {
       return authHeader.substring(7);
     }
-    if (request.cookies?.access_token) {
-      return request.cookies.access_token;
-    }
+    // Cookie-based Nest sessions were never issued end-to-end (#51).
+    // The admin console uses a same-origin BFF that stores httpOnly cookies
+    // and proxies with Authorization: Bearer — do not accept raw cookies here.
     return null;
   }
 
