@@ -286,12 +286,22 @@ Register an HTTPS endpoint and receive signed payloads for any auth event:
 
 **Verifying webhook signatures:**
 
+Deliveries include:
+- `X-AuthKit-Event` — event name
+- `X-AuthKit-Timestamp` — Unix epoch seconds
+- `X-AuthKit-Signature` — `sha256=` + hex HMAC-SHA256 of the **raw body** using the endpoint secret
+
 ```javascript
 const crypto = require('crypto');
-const isValid = crypto.timingSafeEqual(
-  Buffer.from(req.headers['x-authkit-signature']),
-  Buffer.from(crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex'))
-);
+
+function verifyAuthKitSignature(rawBody, signatureHeader, secret) {
+  const expected =
+    'sha256=' +
+    crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  const a = Buffer.from(signatureHeader || '');
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 ```
 
 ---
