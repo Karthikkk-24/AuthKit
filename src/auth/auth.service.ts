@@ -186,17 +186,25 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────────────────
   // LOGIN
   // ─────────────────────────────────────────────────────────────────────
-  async validateLocalUser(email: string, password: string) {
+  async validateLocalUser(email: string, password: string, req?: any) {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: { role: { include: { permissions: true } } },
     });
 
-    if (!user || user.deletedAt) return null;
-    if (!user.passwordHash) return null; // OAuth-only account
-
-    // Check IP blocklist
-    // (handled in middleware layer)
+    if (!user || user.deletedAt) {
+      await this.auditFailedLogin({ email, reason: 'unknown_user', req });
+      return null;
+    }
+    if (!user.passwordHash) {
+      await this.auditFailedLogin({
+        email,
+        userId: user.id,
+        reason: 'oauth_only',
+        req,
+      });
+      return null; // OAuth-only account
+    }
 
     // Check account lock
     if (user.isLocked) {
@@ -206,6 +214,12 @@ export class AuthService {
         : null;
 
       if (!lockExpiry || lockExpiry > new Date()) {
+        await this.auditFailedLogin({
+          email,
+          userId: user.id,
+          reason: 'account_locked',
+          req,
+        });
         throw new ForbiddenException(
           `Account is locked${lockExpiry ? ` until ${lockExpiry.toISOString()}` : ''}. Reason: ${user.lockReason || 'Too many failed attempts'}`,
         );
@@ -220,7 +234,7 @@ export class AuthService {
 
     const valid = await this.passwordService.verify(user.passwordHash, password);
     if (!valid) {
-      await this.handleFailedLogin(user);
+      await this.handleFailedLogin(user, req);
       return null;
     }
 
@@ -233,9 +247,50 @@ export class AuthService {
     return user;
   }
 
-  private async handleFailedLogin(user: any) {
+  /** Honor audit.logFailedLogins; never store passwords or tokens (#38). */
+  private async auditFailedLogin(input: {
+    email: string;
+    userId?: string;
+    reason: string;
+    req?: any;
+  }) {
+    const auditCfg = this.config.get<any>('audit') ?? {};
+    if (!auditCfg.logFailedLogins) return;
+    await this.audit.log({
+      action: 'auth.login',
+      userId: input.userId,
+      ip: input.req?.ip,
+      userAgent: input.req?.headers?.['user-agent'],
+      success: false,
+      metadata: {
+        reason: input.reason,
+        // Redact to domain-safe identifier only when configured
+        email: this.redactEmail(input.email, auditCfg),
+      },
+    });
+  }
+
+  private redactEmail(email: string, auditCfg: any): string {
+    const sensitive: string[] = auditCfg.sensitiveFieldsToRedact ?? [];
+    if (sensitive.includes('email') || sensitive.includes('password')) {
+      const [local, domain] = email.split('@');
+      if (!domain) return '[redacted]';
+      return `${local.slice(0, 1)}***@${domain}`;
+    }
+    return email;
+  }
+
+  private async handleFailedLogin(user: any, req?: any) {
     const lockConfig = this.config.get<any>('security').accountLockout;
-    if (!lockConfig.enabled) return;
+    if (!lockConfig.enabled) {
+      await this.auditFailedLogin({
+        email: user.email,
+        userId: user.id,
+        reason: 'invalid_password',
+        req,
+      });
+      return;
+    }
 
     const newAttempts = user.failedLoginAttempts + 1;
     const shouldLock = newAttempts >= lockConfig.maxAttempts;
@@ -254,6 +309,13 @@ export class AuthService {
         lockedAt: shouldLock ? new Date() : undefined,
         lockReason: shouldLock ? 'Too many failed login attempts' : undefined,
       },
+    });
+
+    await this.auditFailedLogin({
+      email: user.email,
+      userId: user.id,
+      reason: shouldLock ? 'locked_after_failures' : 'invalid_password',
+      req,
     });
 
     if (shouldLock) {
@@ -322,7 +384,13 @@ export class AuthService {
     return this.createTokens(user, req);
   }
 
-  async createTokens(user: any, req: any) {
+  async createTokens(
+    user: any,
+    req: any,
+    opts: { auditAction?: 'auth.login' | 'auth.refresh' | null } = {
+      auditAction: 'auth.login',
+    },
+  ) {
     const jwtConfig = this.config.get<any>('auth').jwt;
     const sessionConfig = this.config.get<any>('session');
 
@@ -393,19 +461,33 @@ export class AuthService {
       data: { lastLoginAt: new Date(), lastLoginIp: req?.ip },
     });
 
-    await this.audit.log({
-      action: 'auth.login',
-      userId: user.id,
-      ip: req?.ip,
-      userAgent: ua,
-      success: true,
-    });
+    const auditCfg = this.config.get<any>('audit') ?? {};
+    const action = opts.auditAction ?? null;
+    if (action === 'auth.login' && auditCfg.logSuccessfulLogins !== false) {
+      await this.audit.log({
+        action: 'auth.login',
+        userId: user.id,
+        ip: req?.ip,
+        userAgent: ua,
+        success: true,
+      });
+    } else if (action === 'auth.refresh' && auditCfg.logTokenRefresh) {
+      await this.audit.log({
+        action: 'auth.refresh',
+        userId: user.id,
+        ip: req?.ip,
+        userAgent: ua,
+        success: true,
+      });
+    }
 
-    this.emitWebhook('user.login', {
-      userId: user.id,
-      email: user.email,
-      sessionId: session.id,
-    });
+    if (action === 'auth.login') {
+      this.emitWebhook('user.login', {
+        userId: user.id,
+        email: user.email,
+        sessionId: session.id,
+      });
+    }
 
     return {
       accessToken,
@@ -439,6 +521,16 @@ export class AuthService {
     });
 
     if (!session) {
+      const auditCfg = this.config.get<any>('audit') ?? {};
+      if (auditCfg.logTokenRefresh) {
+        await this.audit.log({
+          action: 'auth.refresh',
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          success: false,
+          metadata: { reason: 'invalid_refresh_token' },
+        });
+      }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
@@ -447,6 +539,17 @@ export class AuthService {
         where: { id: session.id },
         data: { isRevoked: true, revokedAt: new Date() },
       });
+      const auditCfg = this.config.get<any>('audit') ?? {};
+      if (auditCfg.logTokenRefresh) {
+        await this.audit.log({
+          action: 'auth.refresh',
+          userId: session.userId,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          success: false,
+          metadata: { reason: 'refresh_expired' },
+        });
+      }
       throw new UnauthorizedException('Refresh token expired');
     }
 
@@ -460,7 +563,7 @@ export class AuthService {
       data: { isRevoked: true, revokedAt: new Date() },
     });
 
-    return this.createTokens(session.user, req);
+    return this.createTokens(session.user, req, { auditAction: 'auth.refresh' });
   }
 
   // ─────────────────────────────────────────────────────────────────────

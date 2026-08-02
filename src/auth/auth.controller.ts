@@ -119,7 +119,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email + password' })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
     this.requireStrategy('local');
-    const user = await this.authService.validateLocalUser(dto.email, dto.password);
+    const user = await this.authService.validateLocalUser(dto.email, dto.password, req);
     if (!user) throw new UnauthorizedException('Invalid credentials');
     return this.authService.login(user, dto, req);
   }
