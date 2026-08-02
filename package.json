@@ -23,7 +23,8 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:reset": "prisma migrate reset && ts-node prisma/seed.ts",
     "db:studio": "prisma studio",
-    "keys:generate": "node -e \"const {generateKeyPairSync}=require('crypto');const {writeFileSync,mkdirSync}=require('fs');mkdirSync('./keys',{recursive:true});const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:4096});writeFileSync('./keys/private.pem',privateKey.export({type:'pkcs8',format:'pem'}));writeFileSync('./keys/public.pem',publicKey.export({type:'spki',format:'pem'}));console.log('RSA keys written to ./keys/');\""
+    "keys:generate": "node -e \"const {generateKeyPairSync}=require('crypto');const {writeFileSync,mkdirSync}=require('fs');mkdirSync('./keys',{recursive:true});const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:4096});writeFileSync('./keys/private.pem',privateKey.export({type:'pkcs8',format:'pem'}));writeFileSync('./keys/public.pem',publicKey.export({type:'spki',format:'pem'}));console.log('RSA keys written to ./keys/');\"",
+    "audit:deps": "pnpm audit --prod"
   },
   "dependencies": {
     "@nestjs-modules/ioredis": "^2.2.2",

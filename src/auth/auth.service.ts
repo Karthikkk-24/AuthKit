@@ -18,6 +18,8 @@ import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 import { RegisterDto, LoginDto, ResetPasswordDto, ChangePasswordDto } from './dto/auth.dto';
 import { CryptoService } from './crypto.service';
 import * as crypto from 'crypto';
+// speakeasy remains for TOTP (#48). otplib was evaluated as a replacement but
+// deferred to avoid a risky mid-release MFA format migration; revisit when adding new MFA factors.
 import * as speakeasy from 'speakeasy';
 
 @Injectable()
