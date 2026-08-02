@@ -376,6 +376,10 @@ npm run test:e2e      # End-to-end tests
 
 ---
 
+## 🔒 Security
+
+See [SECURITY.md](./SECURITY.md) for the threat model and vulnerability reporting process.
+
 ## 📄 License
 
 MIT — see [LICENSE](./LICENSE) for details.
