@@ -8,7 +8,6 @@ import { AuditService } from '../audit/audit.service';
 
 export class CreateRoleDto {
   name: string;
-  displayName?: string;
   description?: string;
   parentId?: string;
   isSystem?: boolean;
@@ -125,35 +124,51 @@ export class RbacService {
     return { message: 'Role deleted' };
   }
 
+  /**
+   * Replace this role's permissions with the given action/resource pairs (#33).
+   *
+   * Permissions are role-owned rows (see schema); the previous
+   * `permissions.set([{id}])` treated them like an M2M catalog and either
+   * threw or silently detached rows from other roles. This version deletes
+   * rows the caller removed and inserts new rows the caller added.
+   */
   async assignPermissionsToRole(
     roleId: string,
-    permissionIds: string[],
+    permissions: Array<{ action: string; resource: string }>,
     adminId: string,
     req: any,
   ) {
     const role = await this.prisma.role.findUnique({ where: { id: roleId } });
     if (!role) throw new NotFoundException('Role not found');
 
-    await this.prisma.role.update({
-      where: { id: roleId },
-      data: {
-        permissions: {
-          set: permissionIds.map((pid) => ({ id: pid })),
-        },
-      },
-    });
+    const sanitized = (permissions ?? [])
+      .filter((p) => p && typeof p.action === 'string' && typeof p.resource === 'string')
+      .map((p) => ({ action: p.action.trim(), resource: p.resource.trim() }))
+      .filter((p) => p.action && p.resource);
+
+    await this.prisma.$transaction([
+      this.prisma.permission.deleteMany({ where: { roleId } }),
+      ...(sanitized.length
+        ? [
+            this.prisma.permission.createMany({
+              data: sanitized.map((p) => ({ ...p, roleId })),
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+    ]);
 
     await this.audit.log({
       action: 'role.permissions_updated',
       userId: adminId,
       resourceId: roleId,
       resourceType: 'role',
-      metadata: { permissionIds },
+      metadata: { permissions: sanitized },
       ip: req?.ip,
       success: true,
     });
 
-    return { message: 'Permissions updated' };
+    return { message: 'Permissions updated', count: sanitized.length };
   }
 
   // ─── PERMISSIONS ───────────────────────────────────────────────────
