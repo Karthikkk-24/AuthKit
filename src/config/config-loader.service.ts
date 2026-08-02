@@ -134,6 +134,34 @@ const EDITABLE_FIELDS = new Set([
   'email',
 ]);
 
+const SECRET_KEY_RE =
+  /^(password|passwd|secret|apiKey|api_key|token|clientSecret|privateKey)$/i;
+
+/** Deep-merge objects; never overwrite credential keys from API patches. */
+function deepMergePreserveSecrets(target: any, source: any): any {
+  if (source === null || source === undefined) return target;
+  if (typeof source !== 'object' || Array.isArray(source)) return source;
+  const base =
+    target && typeof target === 'object' && !Array.isArray(target) ? { ...target } : {};
+  for (const key of Object.keys(source)) {
+    if (SECRET_KEY_RE.test(key)) continue;
+    const next = source[key];
+    if (next && typeof next === 'object' && !Array.isArray(next)) {
+      base[key] = deepMergePreserveSecrets(base[key], next);
+    } else if (
+      typeof base[key] === 'string' &&
+      /\$\{[^}]+\}/.test(base[key]) &&
+      (next === '' || next == null)
+    ) {
+      // Keep ${ENV_VAR} placeholders when the admin GET returned an empty interpolation
+      continue;
+    } else {
+      base[key] = next;
+    }
+  }
+  return base;
+}
+
 @Injectable()
 export class ConfigLoaderService {
   private config: AuthKitConfig;
@@ -155,20 +183,24 @@ export class ConfigLoaderService {
    * Apply a whitelisted set of changes to authkit.config.json, persist it,
    * and hot-reload. Only top-level sections listed in EDITABLE_FIELDS may be
    * rewritten; everything else is ignored.
+   *
+   * Deep-merges into existing sections so nested credential placeholders
+   * (e.g. `${SMTP_PASSWORD}`) are never clobbered by interpolated empties
+   * that the admin GET returns (#29).
    */
   updateEditable(patch: Record<string, unknown>): AuthKitConfig {
-    const allowed: Record<string, unknown> = {};
-    for (const key of Object.keys(patch ?? {})) {
-      if (EDITABLE_FIELDS.has(key)) allowed[key] = (patch as any)[key];
-    }
-    if (Object.keys(allowed).length === 0) {
-      return this.config; // nothing editable requested
-    }
-
     const configPath = CONFIG_PATH();
     const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const next = { ...raw, ...allowed };
-    fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + '\n', 'utf-8');
+    let changed = false;
+
+    for (const key of Object.keys(patch ?? {})) {
+      if (!EDITABLE_FIELDS.has(key)) continue;
+      raw[key] = deepMergePreserveSecrets(raw[key] ?? {}, (patch as any)[key]);
+      changed = true;
+    }
+    if (!changed) return this.config;
+
+    fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + '\n', 'utf-8');
     return this.reload();
   }
 
