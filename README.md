@@ -131,6 +131,26 @@ cd admin && pnpm dev
 - **Admin:** http://localhost:3001
 - **Default admin login:** `admin@authkit.dev` / `Admin@AuthKit2025!`
 
+### Optional: email + HIBP setup (local DX)
+
+Email and HaveIBeenPwned checks stay **off by default** so a fresh clone boots without SMTP.
+
+**MailHog (catch-all SMTP):**
+```bash
+docker compose --profile dev up mailhog -d
+# In .env: SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USER= SMTP_PASS=
+# In authkit.config.json: "email": { "enabled": true, "provider": "smtp", ... }
+# Catcher UI: http://localhost:8025
+```
+
+**Pwned-password check (HIBP range API):**
+```json
+// authkit.config.json
+"features": { "pwnedPasswordCheck": true },
+"auth": { "password": { "checkPwnedPasswords": true } }
+```
+No API key is required for the public k-anonymity range endpoint.
+
 ---
 
 ## 🐳 Docker (Production)
