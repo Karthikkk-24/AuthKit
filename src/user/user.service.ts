@@ -2,10 +2,13 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  UnauthorizedException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { ConfigLoaderService } from '../config/config-loader.service';
+import { PasswordService } from '../auth/password.service';
 import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 
 @Injectable()
@@ -15,6 +18,8 @@ export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigLoaderService,
+    private readonly passwords: PasswordService,
     private readonly webhooks: WebhookService,
   ) {}
 
@@ -241,19 +246,107 @@ export class UserService {
   }
 
   async exportData(userId: string) {
+    if (!this.config.isFeatureEnabled('gdprTools')) {
+      throw new ForbiddenException('GDPR data tools are disabled');
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        sessions: true,
-        auditLogs: { orderBy: { timestamp: 'desc' }, take: 100 },
-        apiKeys: { select: { name: true, prefix: true, scopes: true, createdAt: true } },
+        sessions: {
+          // Never export refreshTokenHash (#30) — only non-secret device metadata
+          select: {
+            id: true,
+            ip: true,
+            userAgent: true,
+            deviceName: true,
+            deviceType: true,
+            browser: true,
+            os: true,
+            country: true,
+            city: true,
+            isRevoked: true,
+            revokedAt: true,
+            lastActiveAt: true,
+            createdAt: true,
+            expiresAt: true,
+          },
+        },
+        auditLogs: {
+          orderBy: { timestamp: 'desc' },
+          take: 100,
+          select: {
+            id: true,
+            action: true,
+            resourceId: true,
+            resourceType: true,
+            metadata: true,
+            ip: true,
+            userAgent: true,
+            success: true,
+            timestamp: true,
+          },
+        },
+        apiKeys: {
+          select: {
+            id: true,
+            name: true,
+            prefix: true,
+            scopes: true,
+            isRevoked: true,
+            lastUsedAt: true,
+            expiresAt: true,
+            createdAt: true,
+          },
+        },
       },
     });
     if (!user) throw new NotFoundException('User not found');
 
-    // GDPR: exclude sensitive fields
+    // GDPR: exclude credentials and third-party identifiers
     const { passwordHash, googleId, githubId, ...safeUser } = user as any;
     return safeUser;
+  }
+
+  async deleteAccount(userId: string, password: string | undefined, req: any) {
+    if (!this.config.isFeatureEnabled('gdprTools')) {
+      throw new ForbiddenException('GDPR data tools are disabled');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) throw new NotFoundException('User not found');
+
+    // Password accounts must confirm with their password; OAuth-only accounts
+    // (no passwordHash) are authenticated by the JWT that authorized this call.
+    if (user.passwordHash) {
+      if (!password) throw new UnauthorizedException('Password is required to delete the account');
+      const valid = await this.passwords.verify(user.passwordHash, password);
+      if (!valid) throw new UnauthorizedException('Incorrect password');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { deletedAt: new Date() },
+      }),
+      this.prisma.session.updateMany({
+        where: { userId, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      }),
+    ]);
+
+    await this.audit.log({
+      action: 'user.self_deleted',
+      userId,
+      resourceId: userId,
+      resourceType: 'user',
+      ip: req?.ip,
+      success: true,
+    });
+
+    this.emitWebhook('user.deleted', { userId, selfService: true });
+
+    return { message: 'Account deleted' };
   }
 
   private sanitize(user: any) {
