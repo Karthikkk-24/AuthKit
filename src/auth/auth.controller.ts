@@ -21,6 +21,7 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { ConfigLoaderService } from '../config/config-loader.service';
 import {
   RegisterDto,
   LoginDto,
@@ -32,6 +33,7 @@ import {
   MagicLinkRequestDto,
   VerifyMfaDto,
 } from './dto/auth.dto';
+import { NotFoundException } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -41,7 +43,22 @@ import type { Request, Response } from 'express';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigLoaderService,
+  ) {}
+
+  /** 404 when a strategy/feature is disabled so disabled endpoints look absent. */
+  private requireStrategy(
+    strategy: 'local' | 'google' | 'github' | 'magicLink' | 'apiKey',
+    feature?: 'magicLink' | 'registration' | 'passwordReset',
+  ) {
+    const strategyOn = this.config.isStrategyEnabled(strategy);
+    const featureOn = feature ? this.config.isFeatureEnabled(feature) : true;
+    if (!strategyOn && !featureOn) {
+      throw new NotFoundException('Not found');
+    }
+  }
 
   // ─── REGISTER ──────────────────────────────────────────────────────
   @Public()
@@ -49,6 +66,7 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new account' })
   register(@Body() dto: RegisterDto, @Req() req: Request) {
+    this.requireStrategy('local', 'registration');
     return this.authService.register(dto, req);
   }
 
@@ -95,6 +113,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email + password' })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
+    this.requireStrategy('local');
     const user = await this.authService.validateLocalUser(dto.email, dto.password);
     if (!user) throw new UnauthorizedException('Invalid credentials');
     return this.authService.login(user, dto, req);
@@ -136,6 +155,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a password reset email' })
   forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    this.requireStrategy('local', 'passwordReset');
     return this.authService.forgotPassword(dto.email, req);
   }
 
@@ -144,6 +164,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token from email' })
   resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    this.requireStrategy('local', 'passwordReset');
     return this.authService.resetPassword(dto, req);
   }
 
@@ -206,6 +227,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request passwordless magic link login' })
   sendMagicLink(@Body() dto: MagicLinkRequestDto, @Req() req: Request) {
+    this.requireStrategy('magicLink', 'magicLink');
     return this.authService.sendMagicLink(dto.email, req);
   }
 
@@ -214,6 +236,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify magic link token and get tokens' })
   verifyMagicLink(@Body() body: { token: string }, @Req() req: Request) {
+    this.requireStrategy('magicLink', 'magicLink');
     return this.authService.verifyMagicLink(body.token, req);
   }
 
@@ -231,6 +254,7 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    this.requireStrategy('magicLink', 'magicLink');
     try {
       const result: any = await this.authService.verifyMagicLink(token, req);
       // Mint a short-lived one-time code bound to the same user; the frontend
@@ -249,6 +273,7 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Initiate Google OAuth flow' })
   googleAuth() {
+    this.requireStrategy('google');
     // Passport handles redirect
   }
 
@@ -268,6 +293,7 @@ export class AuthController {
   @UseGuards(AuthGuard('github'))
   @ApiOperation({ summary: 'Initiate GitHub OAuth flow' })
   githubAuth() {
+    this.requireStrategy('github');
     // Passport handles redirect
   }
 
