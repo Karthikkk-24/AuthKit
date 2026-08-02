@@ -14,7 +14,7 @@ export interface AuthKitConfig {
     adminPath: string;
   };
   database: {
-    orm: 'prisma' | 'typeorm' | 'drizzle';
+    orm: 'prisma'; // TypeORM/Drizzle adapters were removed (#35)
     url: string;
   };
   auth: {
