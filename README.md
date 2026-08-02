@@ -304,6 +304,8 @@ Register an HTTPS endpoint and receive signed payloads for any auth event:
 
 **Supported events:** `user.created`, `user.login`, `user.locked`, `session.revoked`, `password.changed`, `mfa.enrolled`, `api_key.created`
 
+Email and webhook delivery run **inline** in the API process (no Bull/Redis job queue). Retries for webhooks use the configured `webhooks.retries` backoff in-process.
+
 **Verifying webhook signatures:**
 
 Deliveries include:
