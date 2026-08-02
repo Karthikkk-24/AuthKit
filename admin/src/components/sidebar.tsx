@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { ThemeSwitcher } from '@/components/theme-switcher';
 
 const navLinks = [
   { href: '/dashboard',         label: 'Dashboard',    icon: LayoutDashboard },
@@ -64,6 +65,9 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Theme (#44) */}
+      <ThemeSwitcher />
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-zinc-800">

@@ -6,15 +6,15 @@
     "apiPrefix": "api",
     "adminPath": "/admin"
   },
-
   "database": {
     "orm": "prisma",
     "url": "${DATABASE_URL}"
   },
-
   "auth": {
     "strategies": {
-      "local": { "enabled": true },
+      "local": {
+        "enabled": true
+      },
       "google": {
         "enabled": false,
         "clientId": "${GOOGLE_CLIENT_ID}",
@@ -27,10 +27,13 @@
         "clientSecret": "${GITHUB_CLIENT_SECRET}",
         "callbackUrl": "http://localhost:3000/api/v1/auth/github/callback"
       },
-      "magicLink": { "enabled": false },
-      "apiKey": { "enabled": true }
+      "magicLink": {
+        "enabled": false
+      },
+      "apiKey": {
+        "enabled": true
+      }
     },
-
     "jwt": {
       "algorithm": "RS256",
       "accessTokenExpiry": "15m",
@@ -38,7 +41,6 @@
       "issuer": "authkit",
       "audience": "authkit-clients"
     },
-
     "password": {
       "hashingAlgorithm": "argon2id",
       "minLength": 8,
@@ -49,7 +51,6 @@
       "requireSpecialChars": true,
       "checkPwnedPasswords": false
     },
-
     "registration": {
       "enabled": true,
       "requireEmailVerification": true,
@@ -57,23 +58,36 @@
       "allowedDomains": []
     }
   },
-
   "mfa": {
     "enabled": true,
     "required": false,
     "requiredForRoles": [],
-    "methods": ["totp", "email"],
+    "methods": [
+      "totp",
+      "email"
+    ],
     "backupCodesCount": 10,
     "totpIssuer": "AuthKit"
   },
-
   "security": {
     "rateLimit": {
       "enabled": true,
-      "global": { "windowMs": 60000, "max": 200 },
-      "login": { "windowMs": 900000, "max": 5 },
-      "register": { "windowMs": 3600000, "max": 10 },
-      "passwordReset": { "windowMs": 3600000, "max": 3 }
+      "global": {
+        "windowMs": 60000,
+        "max": 200
+      },
+      "login": {
+        "windowMs": 900000,
+        "max": 5
+      },
+      "register": {
+        "windowMs": 3600000,
+        "max": 10
+      },
+      "passwordReset": {
+        "windowMs": 3600000,
+        "max": 3
+      }
     },
     "accountLockout": {
       "enabled": true,
@@ -83,21 +97,23 @@
     },
     "cors": {
       "enabled": true,
-      "origins": ["http://localhost:3001"],
+      "origins": [
+        "http://localhost:3001"
+      ],
       "credentials": true
     },
-    "helmet": { "enabled": true },
+    "helmet": {
+      "enabled": true
+    },
     "ipAllowlist": [],
     "ipBlocklist": []
   },
-
   "session": {
     "maxConcurrentSessions": 5,
     "trackDevices": true,
     "autoRevokeInactiveSessions": true,
     "inactivityTimeoutDays": 30
   },
-
   "email": {
     "enabled": false,
     "provider": "smtp",
@@ -124,34 +140,41 @@
       }
     }
   },
-
   "redis": {
     "url": "${REDIS_URL}",
     "prefix": "authkit:"
   },
-
   "audit": {
     "enabled": true,
     "logSuccessfulLogins": true,
     "logFailedLogins": true,
     "logTokenRefresh": false,
     "retentionDays": 90,
-    "sensitiveFieldsToRedact": ["password", "token", "secret", "refreshToken", "accessToken"]
+    "sensitiveFieldsToRedact": [
+      "password",
+      "token",
+      "secret",
+      "refreshToken",
+      "accessToken"
+    ]
   },
-
   "webhooks": {
     "enabled": false,
     "timeout": 5000,
     "retries": 3
   },
-
   "ui": {
     "enabled": true,
     "theme": "midnight",
-    "availableThemes": ["midnight", "aurora", "slate", "ember", "arctic"],
+    "availableThemes": [
+      "midnight",
+      "aurora",
+      "slate",
+      "ember",
+      "arctic"
+    ],
     "showSwaggerDocs": true
   },
-
   "features": {
     "registration": true,
     "emailVerification": true,
@@ -160,7 +183,6 @@
     "mfa": true,
     "apiKeys": true,
     "webhooks": false,
-    "adminImpersonation": false,
     "gdprTools": true,
     "pwnedPasswordCheck": false
   }

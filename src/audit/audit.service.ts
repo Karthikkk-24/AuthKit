@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
+import { getRequestId } from '../common/request-context';
 
 export interface AuditLogInput {
   action: string;
@@ -21,12 +22,19 @@ export class AuditService {
 
   /**
    * Non-fatal: logs to DB; if DB is unavailable falls back to logger.
+   * Attaches the active X-Request-Id when present (#54).
    */
   async log(input: AuditLogInput): Promise<void> {
     try {
-      const metadata = input.errorCode 
+      const requestId = getRequestId();
+      let metadata = input.errorCode
         ? { ...input.metadata, errorCode: input.errorCode }
-        : input.metadata;
+        : input.metadata
+          ? { ...input.metadata }
+          : undefined;
+      if (requestId) {
+        metadata = { ...(metadata ?? {}), requestId };
+      }
 
       await this.prisma.auditLog.create({
         data: {
@@ -44,6 +52,7 @@ export class AuditService {
     } catch (err) {
       this.logger.error('Failed to write audit log', {
         action: input.action,
+        requestId: getRequestId(),
         error: err?.message,
       });
     }
