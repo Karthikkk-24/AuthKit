@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 
+const CONFIG_PATH = () => path.resolve(process.cwd(), 'authkit.config.json');
+
 export interface AuthKitConfig {
   app: {
     name: string;
@@ -120,12 +122,54 @@ export interface AuthKitConfig {
   };
 }
 
+// Top-level sections an admin may PATCH via /admin/config (#29).
+const EDITABLE_FIELDS = new Set([
+  'ui',
+  'features',
+  'mfa',
+  'session',
+  'security',
+  'audit',
+  'webhooks',
+  'email',
+]);
+
 @Injectable()
 export class ConfigLoaderService {
-  private readonly config: AuthKitConfig;
+  private config: AuthKitConfig;
+
+  /** Paths the admin UI is permitted to edit. */
+  static readonly EDITABLE_FIELDS = EDITABLE_FIELDS;
 
   constructor(private readonly nestConfig: ConfigService) {
     this.config = this.loadConfig();
+  }
+
+  /** Re-read and re-interpolate authkit.config.json from disk. */
+  reload(): AuthKitConfig {
+    this.config = this.loadConfig();
+    return this.config;
+  }
+
+  /**
+   * Apply a whitelisted set of changes to authkit.config.json, persist it,
+   * and hot-reload. Only top-level sections listed in EDITABLE_FIELDS may be
+   * rewritten; everything else is ignored.
+   */
+  updateEditable(patch: Record<string, unknown>): AuthKitConfig {
+    const allowed: Record<string, unknown> = {};
+    for (const key of Object.keys(patch ?? {})) {
+      if (EDITABLE_FIELDS.has(key)) allowed[key] = (patch as any)[key];
+    }
+    if (Object.keys(allowed).length === 0) {
+      return this.config; // nothing editable requested
+    }
+
+    const configPath = CONFIG_PATH();
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const next = { ...raw, ...allowed };
+    fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + '\n', 'utf-8');
+    return this.reload();
   }
 
   private interpolateEnv(value: string): string {
@@ -146,7 +190,7 @@ export class ConfigLoaderService {
   }
 
   private loadConfig(): AuthKitConfig {
-    const configPath = path.resolve(process.cwd(), 'authkit.config.json');
+    const configPath = CONFIG_PATH();
     if (!fs.existsSync(configPath)) {
       throw new Error(`authkit.config.json not found at ${configPath}`);
     }
