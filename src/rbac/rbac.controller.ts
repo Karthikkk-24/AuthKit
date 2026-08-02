@@ -114,4 +114,32 @@ export class RbacController {
     return this.rbacService.deletePermission(id);
   }
 
+  // ─── PER-USER OVERRIDES (#26) ──────────────────────────────────────
+  @Get('users/:userId/permissions')
+  @RequirePermissions({ action: 'read', resource: 'permissions' })
+  @ApiOperation({ summary: 'List a user\'s permission overrides' })
+  listUserPermissions(@Param('userId') userId: string) {
+    return this.rbacService.listUserPermissions(userId);
+  }
+
+  @Patch('users/:userId/permissions')
+  @RequirePermissions({ action: 'update', resource: 'permissions' })
+  @ApiOperation({ summary: 'Replace a user\'s grant/deny permission overrides' })
+  setUserPermissions(
+    @Param('userId') userId: string,
+    @Body()
+    body: {
+      permissions: Array<{ action: string; resource: string; effect: 'grant' | 'deny' }>;
+    },
+    @CurrentUser() admin: any,
+    @Req() req: Request,
+  ) {
+    return this.rbacService.setUserPermissions(
+      userId,
+      body.permissions ?? [],
+      admin.id,
+      req,
+    );
+  }
+
 }

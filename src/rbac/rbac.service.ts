@@ -193,4 +193,63 @@ export class RbacService {
     return this.prisma.permission.delete({ where: { id } });
   }
 
+  // ─── PER-USER PERMISSION OVERRIDES (#26) ───────────────────────────
+  async listUserPermissions(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    return this.prisma.userPermission.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async setUserPermissions(
+    userId: string,
+    entries: Array<{ action: string; resource: string; effect: 'grant' | 'deny' }>,
+    adminId: string,
+    req: any,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const sanitized = (entries ?? [])
+      .filter(
+        (e) =>
+          e &&
+          typeof e.action === 'string' &&
+          typeof e.resource === 'string' &&
+          (e.effect === 'grant' || e.effect === 'deny'),
+      )
+      .map((e) => ({
+        action: e.action.trim(),
+        resource: e.resource.trim(),
+        effect: e.effect,
+      }))
+      .filter((e) => e.action && e.resource);
+
+    await this.prisma.$transaction([
+      this.prisma.userPermission.deleteMany({ where: { userId } }),
+      ...(sanitized.length
+        ? [
+            this.prisma.userPermission.createMany({
+              data: sanitized.map((e) => ({ ...e, userId, createdById: adminId })),
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+    ]);
+
+    await this.audit.log({
+      action: 'user.permissions_updated',
+      userId: adminId,
+      resourceId: userId,
+      resourceType: 'user',
+      metadata: { overrides: sanitized },
+      ip: req?.ip,
+      success: true,
+    });
+
+    return { message: 'User permission overrides updated', count: sanitized.length };
+  }
+
 }
