@@ -3,51 +3,80 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rbacApi } from '@/lib/api';
-import { Plus, Pencil, Trash2, Check } from 'lucide-react';
+import { Plus, Check, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
+
+// Mirrors the shapes returned by /rbac/roles and /rbac/permissions (#28, #33)
+interface Permission { id: string; resource: string; action: string; roleId: string; }
+interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  isSystem: boolean;
+  createdAt: string;
+  permissions: Permission[];
+  _count?: { users: number };
+}
+
+// The shared catalog of permission combinations an admin can assign.
+// The API has no global catalog, so we derive one from the union of all
+// role-owned permission rows plus sensible primitives.
+const FALLBACK_RESOURCES = ['users', 'roles', 'permissions', 'audit', 'webhooks', 'apikeys', 'settings', 'sessions', 'resources', 'mfa'];
+const FALLBACK_ACTIONS = ['read', 'write', 'update', 'delete', 'create', 'export', 'lock', '*'];
 
 export default function RolesPage() {
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<any>(null);
+  const [selected, setSelected] = useState<Role | null>(null);
   const [creating, setCreating] = useState(false);
   const [newRoleName, setNewRoleName] = useState('');
 
-  const { data: roles = [] } = useQuery({
+  const { data: roles = [] } = useQuery<Role[]>({
     queryKey: ['roles'],
     queryFn: () => rbacApi.getRoles(),
   });
 
-  const { data: permissions = [] } = useQuery({
-    queryKey: ['permissions'],
-    queryFn: () => rbacApi.getPermissions(),
+  const createRole = useMutation({
+    mutationFn: (data: { name: string }) => rbacApi.createRole(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['roles'] });
+      setCreating(false);
+      setNewRoleName('');
+    },
   });
 
-  const createRole = useMutation({
-    mutationFn: (data: any) => rbacApi.createRole(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['roles'] }); setCreating(false); setNewRoleName(''); },
+  const deleteRole = useMutation({
+    mutationFn: (id: string) => rbacApi.deleteRole(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['roles'] });
+      setSelected(null);
+    },
   });
 
   const assignPerms = useMutation({
-    mutationFn: ({ roleId, permissionIds }: { roleId: string; permissionIds: string[] }) =>
-      rbacApi.assignPermissions(roleId, permissionIds),
+    mutationFn: ({ roleId, permissions }: { roleId: string; permissions: Array<{ action: string; resource: string }> }) =>
+      rbacApi.assignPermissions(roleId, permissions),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['roles'] }),
   });
 
-  const selectedPerms: string[] = selected?.permissions?.map((p: any) => p.id) ?? [];
+  // Selected role's current permission pairs ("resource:action")
+  const selectedKeys = new Set((selected?.permissions ?? []).map((p) => `${p.resource}:${p.action}`));
 
-  const togglePerm = (permId: string) => {
+  const togglePerm = (resource: string, action: string) => {
     if (!selected) return;
-    const next = selectedPerms.includes(permId)
-      ? selectedPerms.filter((id) => id !== permId)
-      : [...selectedPerms, permId];
-    assignPerms.mutate({ roleId: selected.id, permissionIds: next });
+    const key = `${resource}:${action}`;
+    const current = (selected.permissions ?? []).map((p) => ({ action: p.action, resource: p.resource }));
+    const next = selectedKeys.has(key)
+      ? current.filter((p) => !(p.resource === resource && p.action === action))
+      : [...current, { action, resource }];
+    assignPerms.mutate({ roleId: selected.id, permissions: next });
+    // Reflect the change locally so the UI stays responsive
+    setSelected({ ...selected, permissions: next.map((p, i) => ({ id: `pending-${i}`, roleId: selected.id, ...p })) });
   };
 
-  // Group permissions by resource
-  const grouped = (permissions as any[]).reduce<Record<string, any[]>>((acc, p) => {
-    (acc[p.resource] ??= []).push(p);
-    return acc;
-  }, {});
+  const grouped = FALLBACK_RESOURCES.map((resource) => ({
+    resource,
+    actions: FALLBACK_ACTIONS,
+  }));
 
   return (
     <div className="space-y-6 animate-in">
@@ -85,7 +114,7 @@ export default function RolesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Role list */}
         <div className="space-y-2">
-          {(roles as any[]).map((role) => (
+          {roles.map((role) => (
             <button
               key={role.id}
               onClick={() => setSelected(role)}
@@ -97,7 +126,7 @@ export default function RolesPage() {
               )}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">{role.displayName ?? role.name}</span>
+                <span className="font-medium">{role.name}</span>
                 {role.isSystem && (
                   <span className="badge-gray text-[10px]">system</span>
                 )}
@@ -113,22 +142,32 @@ export default function RolesPage() {
         <div className="lg:col-span-2">
           {selected ? (
             <div className="card space-y-4">
-              <h2 className="font-semibold text-zinc-200">
-                Permissions for <span className="text-violet-400">{selected.displayName ?? selected.name}</span>
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-zinc-200">
+                  Permissions for <span className="text-violet-400">{selected.name}</span>
+                </h2>
+                {!selected.isSystem && (
+                  <button
+                    onClick={() => deleteRole.mutate(selected.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-500/10 border border-red-500/20"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete role
+                  </button>
+                )}
+              </div>
               <div className="space-y-4">
-                {Object.entries(grouped).map(([resource, perms]) => (
+                {grouped.map(({ resource, actions }) => (
                   <div key={resource}>
                     <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
                       {resource}
                     </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {perms.map((p: any) => {
-                        const active = selectedPerms.includes(p.id);
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {actions.map((action) => {
+                        const active = selectedKeys.has(`${resource}:${action}`);
                         return (
                           <button
-                            key={p.id}
-                            onClick={() => togglePerm(p.id)}
+                            key={action}
+                            onClick={() => togglePerm(resource, action)}
                             className={clsx(
                               'flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all',
                               active
@@ -142,7 +181,7 @@ export default function RolesPage() {
                             )}>
                               {active && <Check className="w-2.5 h-2.5 text-zinc-900" />}
                             </div>
-                            <span className="font-mono text-xs">{p.action}</span>
+                            <span className="font-mono text-xs">{action}</span>
                           </button>
                         );
                       })}

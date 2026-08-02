@@ -4,8 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Key, Plus, Trash2, Copy, Eye, EyeOff, Check, RefreshCw, X } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
-interface ApiKey { id: string; name: string; prefix: string; scopes: string[]; lastUsedAt: string | null; expiresAt: string | null; createdAt: string; isActive: boolean; }
-interface NewKeyResponse { key: string; record: ApiKey; }
+interface ApiKey { id: string; name: string; prefix: string; scopes: string[]; lastUsedAt: string | null; expiresAt: string | null; createdAt: string; isRevoked: boolean; }
+interface NewKeyResponse extends ApiKey { key: string; }
 
 const AVAILABLE_SCOPES = ['read', 'write', 'admin', 'users:read', 'users:write', 'audit:read', 'webhooks:manage', 'apikeys:manage'];
 
@@ -28,7 +28,7 @@ function CreateKeyModal({ onClose }: { onClose: () => void }) {
   const [visible, setVisible] = useState(false);
 
   const mutation = useMutation({
-    mutationFn: () => apiClient('/api-keys', { method: 'POST', body: JSON.stringify({ name, scopes, expiresInDays: parseInt(expiry) || null }) }),
+    mutationFn: () => apiClient<NewKeyResponse>('/api-keys', { method: 'POST', body: JSON.stringify({ name, scopes, expiresIn: parseInt(expiry) || undefined }) }),
     onSuccess: (data: NewKeyResponse) => { setNewKey(data.key); qc.invalidateQueries({ queryKey: ['api-keys'] }); },
   });
 
@@ -101,7 +101,7 @@ export default function ApiKeysPage() {
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (id: string) => apiClient(`/api-keys/${id}/revoke`, { method: 'PATCH' }),
+    mutationFn: (id: string) => apiClient(`/api-keys/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
   });
 
@@ -125,14 +125,14 @@ export default function ApiKeysPage() {
             <p>No API keys yet. Create your first key to get started.</p>
           </div>
         ) : keys.map(key => (
-          <div key={key.id} className={`flex items-center gap-4 px-5 py-4 rounded-xl border transition-colors ${key.isActive ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-800/20 border-slate-700/20 opacity-60'}`}>
+          <div key={key.id} className={`flex items-center gap-4 px-5 py-4 rounded-xl border transition-colors ${!key.isRevoked ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-800/20 border-slate-700/20 opacity-60'}`}>
             <div className="h-10 w-10 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
               <Key className="h-5 w-5 text-violet-400" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="font-medium text-white text-sm">{key.name}</p>
-                {!key.isActive && <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs border border-red-500/20">Revoked</span>}
+                {key.isRevoked && <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs border border-red-500/20">Revoked</span>}
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <code className="text-xs text-slate-400 font-mono">{key.prefix}••••••••</code>
@@ -144,7 +144,7 @@ export default function ApiKeysPage() {
               <p>{key.lastUsedAt ? `Last used ${new Date(key.lastUsedAt).toLocaleDateString()}` : 'Never used'}</p>
               <p className="mt-0.5">{key.expiresAt ? `Expires ${new Date(key.expiresAt).toLocaleDateString()}` : 'No expiry'}</p>
             </div>
-            {key.isActive && (
+            {!key.isRevoked && (
               <button onClick={() => revokeMutation.mutate(key.id)} className="flex-shrink-0 p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors" title="Revoke">
                 <Trash2 className="h-4 w-4" />
               </button>
