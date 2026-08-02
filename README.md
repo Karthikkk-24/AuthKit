@@ -11,7 +11,7 @@
 
 <p align="center">
   <img alt="NestJS" src="https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white">
-  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-black?logo=next.js">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=next.js">
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white">
   <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white">
   <img alt="Prisma" src="https://img.shields.io/badge/Prisma-ORM-2D3748?logo=prisma">
@@ -33,7 +33,7 @@
 | **Audit Logs** | Structured event log, metadata, IP/UA capture, CSV export |
 | **Webhooks** | HMAC-SHA256 signed delivery, retry backoff, secret rotation |
 | **Admin UI** | Dashboard metrics, user management, RBAC editor, audit viewer, webhook config, API key manager, settings |
-| **Database** | Prisma (default) · TypeORM · Drizzle ORM — switchable via config |
+| **Database** | PostgreSQL via Prisma |
 | **Observability** | `/health` endpoint, `/metrics/dashboard`, Swagger docs |
 
 ---
@@ -51,10 +51,10 @@ AuthKit/
 │   ├── webhook/             # Endpoint registration & HMAC dispatch
 │   ├── metrics/             # Growth & event timeline metrics
 │   ├── redis/               # Redis module (ioredis)
-│   ├── prisma/              # PrismaService
+│   ├── database/prisma/     # PrismaService
 │   ├── email/               # Email service (SMTP/SendGrid/Resend)
 │   └── common/              # Guards, decorators, interceptors
-├── admin/                   # Next.js 15 Admin Dashboard
+├── admin/                   # Next.js 16 Admin Dashboard
 │   └── src/app/dashboard/
 │       ├── page.tsx         # Metrics overview
 │       ├── users/           # User management
@@ -127,7 +127,7 @@ cd admin && pnpm dev
 ```
 
 - **API:** http://localhost:3000
-- **Swagger:** http://localhost:3000/api/docs
+- **Swagger:** http://localhost:3000/docs
 - **Admin:** http://localhost:3001
 - **Default admin login:** `admin@authkit.dev` / `Admin@AuthKit2025!`
 
@@ -194,8 +194,8 @@ POST /api/v1/auth/logout
 
 ### OAuth
 ```
-GET /api/v1/auth/oauth/google/login
-GET /api/v1/auth/oauth/github/login
+GET /api/v1/auth/google
+GET /api/v1/auth/github
 ```
 
 ### MFA
@@ -208,8 +208,8 @@ POST /api/v1/auth/mfa/email/verify  → { code }
 
 ### Password Reset
 ```
-POST /api/v1/auth/password/reset-request  → { email }
-POST /api/v1/auth/password/reset          → { token, newPassword }
+POST /api/v1/auth/forgot-password  → { email }
+POST /api/v1/auth/reset-password    → { token, newPassword }
 ```
 
 ---
@@ -222,7 +222,7 @@ POST /api/v1/auth/password/reset          → { token, newPassword }
 guest → user → moderator → admin → superadmin
 ```
 
-Each role inherits all permissions from roles below it in the hierarchy. Permissions are defined as `resource:action` pairs with wildcard support:
+Higher roles satisfy lower `@Roles(...)` checks at enforcement time (e.g. `admin` passes `@Roles('user')`). Permission rows also inherit via `Role.parentId` in `PermissionsGuard`. Permissions are `resource:action` pairs with wildcard support:
 
 | Expression | Meaning |
 |---|---|
@@ -251,10 +251,10 @@ PATCH /api/v1/rbac/users/:userId/permissions
 ## 🔐 API Key Authentication
 
 ```
-POST /api/v1/api-keys         → { name, scopes, expiresInDays }
+POST /api/v1/api-keys         → { name, scopes, expiresIn }
                               ← { key: "ak_...", id }  (shown once!)
 GET  /api/v1/api-keys
-PATCH /api/v1/api-keys/:id/revoke
+DELETE /api/v1/api-keys/:id
 ```
 
 Use in requests:
@@ -298,15 +298,15 @@ const isValid = crypto.timingSafeEqual(
 
 ## 🗄️ Database
 
-AuthKit ships with three ORM adapters selectable via `authkit.config.json`:
+AuthKit uses **Prisma** against PostgreSQL. Multi-ORM switching was removed (#35).
 
-| ORM | Config value | Notes |
-|---|---|---|
-| **Prisma** | `"prisma"` | Default. Best DX, full migrations |
-| **TypeORM** | `"typeorm"` | Enterprise Java-style patterns |
-| **Drizzle** | `"drizzle"` | Blazing-fast, SQL-first |
+| Command | When to use |
+|---|---|
+| `pnpm db:migrate` / `prisma migrate dev` | Local development — creates/applies migrations |
+| `pnpm db:deploy` / `prisma migrate deploy` | CI/production — applies committed migrations |
+| `npx prisma db push` | Prototyping only — syncs schema without migration history |
 
-All three share the same PostgreSQL database — they are interchangeable via config.
+A baseline migration lives under `prisma/migrations/` (#40).
 
 ---
 
