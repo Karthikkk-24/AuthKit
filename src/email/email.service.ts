@@ -11,6 +11,37 @@ export class EmailService {
     this.initTransporter();
   }
 
+  /** Escape user-controlled strings before interpolating into HTML (XSS/HTML injection). */
+  private escapeHtml(value: string): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Validate a hex color (#rgb/#rrggbb) used in inline styles.
+   * Falls back to the default when the config value is malformed.
+   */
+  private safeColor(value: string, fallback = '#6366f1'): string {
+    return /^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{3}$/.test(value)
+      ? value
+      : fallback;
+  }
+
+  /** Only allow http(s) image URLs for the branding logo. */
+  private safeUrl(value: string): string {
+    if (!value) return '';
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' || url.protocol === 'http:' ? value : '';
+    } catch {
+      return '';
+    }
+  }
+
   private initTransporter() {
     const emailConfig = this.config.get<any>('email');
     if (!emailConfig.enabled) {
@@ -71,9 +102,10 @@ export class EmailService {
 
   private getBaseTemplate(content: string, title: string): string {
     const branding = this.config.get<any>('email').templates?.branding || {};
-    const companyName = branding.companyName || 'AuthKit';
-    const primaryColor = branding.primaryColor || '#6366f1';
-    const logo = branding.logo || '';
+    const companyName = this.escapeHtml(branding.companyName || 'AuthKit');
+    const primaryColor = this.safeColor(branding.primaryColor || '#6366f1');
+    const logo = this.safeUrl(branding.logo || '');
+    const safeTitle = this.escapeHtml(title);
 
     return `
 <!DOCTYPE html>
@@ -81,7 +113,7 @@ export class EmailService {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${safeTitle}</title>
 </head>
 <body style="margin:0;padding:0;background:#0f0f23;font-family:'Inter',system-ui,sans-serif;">
   <div style="max-width:600px;margin:40px auto;background:linear-gradient(135deg,#1a1a3e 0%,#0d0d1a 100%);border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
@@ -105,13 +137,25 @@ export class EmailService {
 </html>`;
   }
 
+  /** URL of the admin/frontend console that consumes emailed tokens. */
+  private getFrontendUrl(): string {
+    return process.env.FRONTEND_URL || 'http://localhost:3001';
+  }
+
+  /** Base URL of this API (used for GET click-through handlers). */
+  private getApiUrl(): string {
+    return process.env.APP_URL || 'http://localhost:3000';
+  }
+
   async sendEmailVerification(to: string, name: string, token: string): Promise<void> {
-    const verifyUrl = `${process.env.APP_URL || 'http://localhost:3000'}/api/auth/verify-email?token=${token}`;
+    // Click-through hits a GET handler on the API which verifies then
+    // redirects to the frontend (#20). Versioned /v1 path matches main.ts.
+    const verifyUrl = `${this.getApiUrl()}/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`;
     const html = this.getBaseTemplate(
       `
       <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 16px;">Verify your email</h2>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 32px;">
-        Hi ${name}, thanks for signing up! Click the button below to verify your email address.
+        Hi ${this.escapeHtml(name)}, thanks for signing up! Click the button below to verify your email address.
       </p>
       <a href="${verifyUrl}" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;text-decoration:none;padding:16px 40px;border-radius:12px;font-size:16px;font-weight:700;letter-spacing:0.5px;">
         Verify Email
@@ -127,12 +171,12 @@ export class EmailService {
   }
 
   async sendPasswordReset(to: string, name: string, token: string): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/reset-password?token=${token}`;
+    const resetUrl = `${this.getFrontendUrl()}/reset-password?token=${encodeURIComponent(token)}`;
     const html = this.getBaseTemplate(
       `
       <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 16px;">Reset your password</h2>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 32px;">
-        Hi ${name}, we received a request to reset your password. Click below to proceed.
+        Hi ${this.escapeHtml(name)}, we received a request to reset your password. Click below to proceed.
       </p>
       <a href="${resetUrl}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;text-decoration:none;padding:16px 40px;border-radius:12px;font-size:16px;font-weight:700;">
         Reset Password
@@ -148,12 +192,14 @@ export class EmailService {
   }
 
   async sendMagicLink(to: string, name: string, token: string): Promise<void> {
-    const magicUrl = `${process.env.APP_URL || 'http://localhost:3000'}/api/auth/magic-link/verify?token=${token}`;
+    // Click-through hits a GET handler on the API which verifies the token,
+    // then redirects to the frontend OAuth-success page with a one-time code (#20).
+    const magicUrl = `${this.getApiUrl()}/api/v1/auth/magic-link/verify?token=${encodeURIComponent(token)}`;
     const html = this.getBaseTemplate(
       `
       <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 16px;">Your magic login link</h2>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 32px;">
-        Hi ${name}, click the button below to log in instantly — no password needed.
+        Hi ${this.escapeHtml(name)}, click the button below to log in instantly — no password needed.
       </p>
       <a href="${magicUrl}" style="display:inline-block;background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;text-decoration:none;padding:16px 40px;border-radius:12px;font-size:16px;font-weight:700;">
         Log In Now
@@ -175,7 +221,7 @@ export class EmailService {
         <p style="color:#fca5a5;font-size:14px;margin:0;">Suspicious activity detected</p>
       </div>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 16px;">
-        Hi ${name}, your account has been temporarily locked due to too many failed login attempts.
+        Hi ${this.escapeHtml(name)}, your account has been temporarily locked due to too many failed login attempts.
       </p>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0;">
         If this wasn't you, please reset your password immediately or contact support.
@@ -191,10 +237,10 @@ export class EmailService {
       `
       <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 16px;">Your verification code</h2>
       <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 32px;">
-        Hi ${name}, enter this code to complete your login.
+        Hi ${this.escapeHtml(name)}, enter this code to complete your login.
       </p>
       <div style="background:rgba(99,102,241,0.1);border:2px solid rgba(99,102,241,0.3);border-radius:16px;padding:32px;text-align:center;margin:0 0 32px;">
-        <span style="color:#6366f1;font-size:48px;font-weight:800;letter-spacing:12px;font-family:monospace;">${otp}</span>
+        <span style="color:#6366f1;font-size:48px;font-weight:800;letter-spacing:12px;font-family:monospace;">${this.escapeHtml(otp)}</span>
       </div>
       <p style="color:#6b7280;font-size:14px;">
         This code expires in <strong style="color:#a1a1aa;">10 minutes</strong>.
