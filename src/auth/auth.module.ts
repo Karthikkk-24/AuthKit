@@ -6,8 +6,6 @@ import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 import { CryptoService } from './crypto.service';
 import { TokenBlacklistService } from './token-blacklist.service';
-import { LocalStrategy } from './strategies/local.strategy';
-import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { GitHubStrategy } from './strategies/github.strategy';
 import { PrismaModule } from '../database/prisma/prisma.module';
@@ -28,7 +26,7 @@ import { resolveJwtKeys } from './jwt-keys.util';
     AuditModule,
     RedisModule,
     WebhookModule,
-    PassportModule.register({ defaultStrategy: 'jwt' }),
+    PassportModule.register({}),
     JwtModule.registerAsync({
       imports: [AppConfigModule],
       inject: [ConfigLoaderService],
@@ -62,8 +60,6 @@ import { resolveJwtKeys } from './jwt-keys.util';
     PasswordService,
     CryptoService,
     TokenBlacklistService,
-    LocalStrategy,
-    JwtStrategy,
     GoogleStrategy,
     GitHubStrategy,
   ],
