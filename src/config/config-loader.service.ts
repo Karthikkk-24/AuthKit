@@ -116,7 +116,6 @@ export interface AuthKitConfig {
     mfa: boolean;
     apiKeys: boolean;
     webhooks: boolean;
-    adminImpersonation: boolean;
     gdprTools: boolean;
     pwnedPasswordCheck: boolean;
   };
