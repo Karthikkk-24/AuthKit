@@ -57,6 +57,7 @@ describe('JwtAuthGuard', () => {
                 userId: 'user-123',
                 isRevoked: false,
                 expiresAt: new Date(Date.now() + 60_000),
+                lastActiveAt: new Date(),
               }
             : opts.session,
         ),
@@ -144,6 +145,38 @@ describe('JwtAuthGuard', () => {
   it('rejects missing bearer token', async () => {
     const guard = makeGuard({});
     const ctx = makeContext();
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('does not accept cookies as JWT (BFF owns cookies) (#51)', async () => {
+    const guard = makeGuard({});
+    const request: any = {
+      headers: {},
+      cookies: { access_token: 'cookie-tok' },
+    };
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as any;
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('rejects session owned by a different user (IDOR regression)', async () => {
+    const guard = makeGuard({
+      session: {
+        id: 'sess-1',
+        userId: 'other-user',
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 60_000),
+        lastActiveAt: new Date(),
+      },
+    });
+    const ctx = makeContext('Bearer tok');
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
