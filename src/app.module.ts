@@ -13,6 +13,7 @@ import { WebhookModule } from './webhook/webhook.module';
 import { EmailModule } from './email/email.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { IpListGuard } from './common/guards/ip-list.guard';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
 
@@ -37,6 +38,7 @@ import { MetricsModule } from './metrics/metrics.module';
     MetricsModule,
   ],
   providers: [
+    { provide: APP_GUARD, useClass: IpListGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },

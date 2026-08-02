@@ -80,14 +80,16 @@ export class RbacController {
 
   @Patch('roles/:id/permissions')
   @RequirePermissions({ action: 'update', resource: 'roles' })
-  @ApiOperation({ summary: 'Assign permissions to a role (replaces existing)' })
+  @ApiOperation({
+    summary: 'Replace a role\'s permissions (action/resource pairs)',
+  })
   assignPermissions(
     @Param('id') id: string,
-    @Body() body: { permissionIds: string[] },
+    @Body() body: { permissions: Array<{ action: string; resource: string }> },
     @CurrentUser() admin: any,
     @Req() req: Request,
   ) {
-    return this.rbacService.assignPermissionsToRole(id, body.permissionIds, admin.id, req);
+    return this.rbacService.assignPermissionsToRole(id, body.permissions ?? [], admin.id, req);
   }
 
   // ─── PERMISSIONS ───────────────────────────────────────────────────
@@ -110,6 +112,34 @@ export class RbacController {
   @ApiOperation({ summary: 'Delete a permission (superadmin only)' })
   deletePermission(@Param('id') id: string) {
     return this.rbacService.deletePermission(id);
+  }
+
+  // ─── PER-USER OVERRIDES (#26) ──────────────────────────────────────
+  @Get('users/:userId/permissions')
+  @RequirePermissions({ action: 'read', resource: 'permissions' })
+  @ApiOperation({ summary: 'List a user\'s permission overrides' })
+  listUserPermissions(@Param('userId') userId: string) {
+    return this.rbacService.listUserPermissions(userId);
+  }
+
+  @Patch('users/:userId/permissions')
+  @RequirePermissions({ action: 'update', resource: 'permissions' })
+  @ApiOperation({ summary: 'Replace a user\'s grant/deny permission overrides' })
+  setUserPermissions(
+    @Param('userId') userId: string,
+    @Body()
+    body: {
+      permissions: Array<{ action: string; resource: string; effect: 'grant' | 'deny' }>;
+    },
+    @CurrentUser() admin: any,
+    @Req() req: Request,
+  ) {
+    return this.rbacService.setUserPermissions(
+      userId,
+      body.permissions ?? [],
+      admin.id,
+      req,
+    );
   }
 
 }

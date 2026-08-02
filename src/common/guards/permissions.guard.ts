@@ -38,12 +38,28 @@ export class PermissionsGuard implements CanActivate {
 
     if (!role) throw new ForbiddenException('Role not found');
 
-    // Collect all permissions including inherited from parent roles
-    const allPerms = this.collectPermissions(role);
+    // Collect role permissions (incl. parent hierarchy), then apply
+    // per-user grant/deny overrides (#26). A deny always wins.
+    const rolePerms = this.collectPermissions(role);
+    const overrides = await this.prisma.userPermission.findMany({
+      where: { userId: user.id },
+      select: { action: true, resource: true, effect: true },
+    });
 
-    // Check that ALL required permissions are satisfied
-    const granted = required.every((req) =>
-      this.isPermissionGranted(allPerms, req),
+    const denies = overrides.filter((o) => o.effect === 'deny');
+    const grants = overrides.filter((o) => o.effect === 'grant');
+    const allPerms = [
+      ...rolePerms,
+      ...grants.map((g) => ({ action: g.action, resource: g.resource })),
+    ];
+
+    // Check that ALL required permissions are satisfied and none denied
+    const granted = required.every(
+      (req) =>
+        !this.isPermissionGranted(
+          denies.map((d) => ({ action: d.action, resource: d.resource })),
+          req,
+        ) && this.isPermissionGranted(allPerms, req),
     );
 
     if (!granted) {
@@ -76,7 +92,7 @@ export class PermissionsGuard implements CanActivate {
 
   private isPermissionGranted(
     perms: Array<{ action: string; resource: string }>,
-    req: PermissionRequirement,
+    req: { action: string; resource: string },
   ): boolean {
     return perms.some(
       (p) =>

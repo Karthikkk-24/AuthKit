@@ -57,6 +57,10 @@ const PERMISSIONS: Array<{ resource: string; action: string; description?: strin
   { resource: 'mfa', action: '*',       description: 'Full MFA access' },
   // Metrics
   { resource: 'metrics', action: 'read', description: 'View platform metrics' },
+  // Settings / config (#29)
+  { resource: 'settings', action: 'read', description: 'View platform settings' },
+  { resource: 'settings', action: 'update', description: 'Update platform settings' },
+  { resource: 'settings', action: '*', description: 'Full settings access' },
 ];
 
 // ── Role permission grants ────────────────────────────────────────────
@@ -65,7 +69,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   admin: [
     'users:*', 'sessions:*', 'roles:read', 'roles:update',
     'permissions:read', 'audit:*', 'webhooks:*', 'apikeys:*',
-    'mfa:*', 'metrics:read',
+    'mfa:*', 'metrics:read', 'settings:*',
   ],
   moderator: [
     'users:read', 'users:lock', 'sessions:read', 'sessions:revoke',

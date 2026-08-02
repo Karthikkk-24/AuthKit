@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
+import { CryptoService } from './crypto.service';
 import { TokenBlacklistService } from './token-blacklist.service';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -59,12 +60,13 @@ import { resolveJwtKeys } from './jwt-keys.util';
   providers: [
     AuthService,
     PasswordService,
+    CryptoService,
     TokenBlacklistService,
     LocalStrategy,
     JwtStrategy,
     GoogleStrategy,
     GitHubStrategy,
   ],
-  exports: [AuthService, PasswordService, TokenBlacklistService, JwtModule],
+  exports: [AuthService, PasswordService, CryptoService, TokenBlacklistService, JwtModule],
 })
 export class AuthModule {}

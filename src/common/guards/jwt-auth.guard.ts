@@ -95,6 +95,7 @@ export class JwtAuthGuard implements CanActivate {
           userId: true,
           isRevoked: true,
           expiresAt: true,
+          lastActiveAt: true,
         },
       });
       if (
@@ -106,12 +107,39 @@ export class JwtAuthGuard implements CanActivate {
         throw new UnauthorizedException('Session has been revoked');
       }
 
+      // Auto-revoke sessions that have been idle longer than the configured
+      // inactivity window (#31).
+      const sessionCfg = this.config.get<any>('session') ?? {};
+      if (sessionCfg.autoRevokeInactiveSessions && sessionCfg.inactivityTimeoutDays > 0) {
+        const idleMs = Date.now() - session.lastActiveAt.getTime();
+        const maxIdleMs = sessionCfg.inactivityTimeoutDays * 24 * 60 * 60 * 1000;
+        if (idleMs > maxIdleMs) {
+          await this.prisma.session
+            .update({
+              where: { id: session.id },
+              data: { isRevoked: true, revokedAt: new Date() },
+            })
+            .catch(() => {});
+          throw new UnauthorizedException('Session expired due to inactivity');
+        }
+      }
+
       this.prisma.session
         .update({
           where: { id: session.id },
           data: { lastActiveAt: new Date() },
         })
         .catch(() => {});
+    }
+
+    // Tokens minted for MFA enrollment are scope-limited (#23)
+    if (payload.type === 'mfa_setup') {
+      const url: string = request.url ?? '';
+      const allowed =
+        /\/auth\/mfa\//.test(url) || /\/auth\/me$/.test(url);
+      if (!allowed) {
+        throw new ForbiddenException('Token is restricted to MFA setup');
+      }
     }
 
     request['user'] = {

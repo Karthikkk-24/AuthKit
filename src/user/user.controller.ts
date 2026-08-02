@@ -66,6 +66,16 @@ export class UserController {
     return this.userService.exportData(user.id);
   }
 
+  @Delete('me')
+  @ApiOperation({ summary: 'Delete own account (GDPR erase)' })
+  deleteMe(
+    @CurrentUser() user: any,
+    @Body() body: { password?: string },
+    @Req() req: Request,
+  ) {
+    return this.userService.deleteAccount(user.id, body?.password, req);
+  }
+
   @Get()
   @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')

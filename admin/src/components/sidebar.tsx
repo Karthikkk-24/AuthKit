@@ -70,8 +70,13 @@ export function Sidebar() {
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-zinc-400
                      hover:text-rose-400 hover:bg-rose-500/10 transition-all w-full"
-          onClick={() => {
-            localStorage.removeItem('ak_token');
+          onClick={async () => {
+            try {
+              const { authApi } = await import('@/lib/api');
+              await authApi.logout();
+            } catch {
+              /* still clear local session via redirect */
+            }
             window.location.href = '/login';
           }}
         >

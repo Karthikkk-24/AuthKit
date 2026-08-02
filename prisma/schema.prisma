@@ -45,6 +45,7 @@ model User {
     emailVerifications  EmailVerification[]
     passwordResets      PasswordReset[]
     webhooks            Webhook[]
+    userPermissions     UserPermission[]
 }
 
 // ─────────────────────────────────────────────
@@ -63,6 +64,22 @@ model Role {
     users       User[]
     createdAt   DateTime     @default(now())
     updatedAt   DateTime     @updatedAt
+}
+
+// Per-user permission override (#26): a grant gives the user a permission
+// their role lacks; a deny blocks one their role would otherwise have.
+model UserPermission {
+    id          String   @id @default(uuid())
+    userId      String
+    user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    action      String
+    resource    String
+    effect      String   @default("grant") // "grant" | "deny"
+    createdById String?
+    createdAt   DateTime @default(now())
+
+    @@unique([userId, action, resource, effect])
+    @@index([userId])
 }
 
 // ─────────────────────────────────────────────
