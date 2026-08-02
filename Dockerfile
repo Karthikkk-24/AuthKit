@@ -47,15 +47,18 @@ EXPOSE 3000
 CMD ["node", "dist/main.js"]
 
 # ── Stage 3: Admin Runtime ────────────────────────────────────────────
+# Next standalone in a workspace nests under the package directory name.
 FROM node:20-alpine AS admin
 
-WORKDIR /app/admin
+WORKDIR /app
 
 COPY --from=builder /app/admin/.next/standalone ./
-COPY --from=builder /app/admin/.next/static ./.next/static
-COPY --from=builder /app/admin/public ./public
+COPY --from=builder /app/admin/.next/static ./admin/.next/static
+COPY --from=builder /app/admin/public ./admin/public
 
 ENV NODE_ENV=production
+ENV PORT=3001
+ENV HOSTNAME=0.0.0.0
 EXPOSE 3001
 
-CMD ["node", "server.js"]
+CMD ["node", "admin/server.js"]
