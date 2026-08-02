@@ -1008,7 +1008,23 @@ export class AuthService {
     return (this.blacklist as any).redis ?? null;
   }
 
+  
+  /** SMS MFA is schema-reserved but not implemented (#43). */
+  private assertMfaMethodEnabled(method: string) {
+    if (method === 'sms' || method === 'SMS') {
+      throw new BadRequestException(
+        'SMS MFA is not available yet. Use TOTP or email OTP.',
+      );
+    }
+    const mfa = this.config.get<any>('mfa') ?? {};
+    const methods: string[] = mfa.methods ?? [];
+    if (!mfa.enabled || !methods.map((m) => m.toLowerCase()).includes(method.toLowerCase())) {
+      throw new BadRequestException(`MFA method "${method}" is disabled`);
+    }
+  }
+
   async sendEmailOtp(userId: string) {
+    this.assertMfaMethodEnabled('email');
     if (!this.isMfaMethodAllowed('email')) {
       throw new BadRequestException('Email MFA is disabled');
     }

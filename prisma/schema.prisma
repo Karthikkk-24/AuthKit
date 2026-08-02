@@ -161,6 +161,8 @@ model MfaCredential {
     @@unique([userId, type])
 }
 
+// SMS is reserved for a future provider integration (#43).
+// Do not expose SMS enrollment in the API until a provider is wired.
 enum MfaType {
     TOTP
     EMAIL
