@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
   }
 
   const roleName: string = data?.user?.role ?? '';
+  // #49 — refuse non-admin sessions before setting cookies (middleware is a second gate)
   if (!['admin', 'superadmin'].includes(roleName)) {
     return NextResponse.json(
       { message: 'Admin console access requires an admin or superadmin role' },

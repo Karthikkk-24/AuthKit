@@ -225,6 +225,8 @@ model AuditLog {
 // ─────────────────────────────────────────────
 // RESOURCE (Protected user content)
 // ─────────────────────────────────────────────
+// Reserved for future resource-level ACL APIs (#34).
+// Stub Nest modules were removed; do not treat these as live endpoints yet.
 model Resource {
     id               String           @id @default(uuid())
     title            String

@@ -29,7 +29,8 @@ export default function LoginPage() {
       }
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? err?.message ?? 'Login failed');
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Login failed';
+      setError(Array.isArray(msg) ? msg.join(', ') : msg);
     } finally {
       setLoading(false);
     }
