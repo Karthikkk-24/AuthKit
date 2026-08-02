@@ -29,12 +29,14 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
   const init: RequestInit = {
     method: req.method,
     headers,
-    duplex: 'half',
-  } as RequestInit;
+  };
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const body = await req.arrayBuffer();
-    if (body.byteLength > 0) init.body = body;
+    if (body.byteLength > 0) {
+      (init as RequestInit & { duplex?: string }).duplex = 'half';
+      init.body = body;
+    }
   }
 
   let upstream = await fetch(url, init);

@@ -61,7 +61,7 @@
   "mfa": {
     "enabled": true,
     "required": false,
-    "requiredForRoles": ["admin", "superadmin"],
+    "requiredForRoles": [],
     "methods": ["totp", "email"],
     "backupCodesCount": 10,
     "totpIssuer": "AuthKit"

@@ -39,8 +39,11 @@ export class IpListGuard implements CanActivate {
     if (!ip) return true; // unable to determine IP — let other guards decide
     const normalized = this.normalize(ip);
 
-    // Allowlist short-circuits everything (explicit admin access)
-    if (allowlist.length > 0 && this.matches(normalized, allowlist)) {
+    // Non-empty allowlist is exclusive: only listed IPs may proceed (#22).
+    if (allowlist.length > 0) {
+      if (!this.matches(normalized, allowlist)) {
+        throw new ForbiddenException('Access denied from this IP');
+      }
       return true;
     }
 

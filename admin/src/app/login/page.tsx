@@ -23,6 +23,10 @@ export default function LoginPage() {
         setError('MFA is required for this account. Complete MFA via the API, then sign in again.');
         return;
       }
+      if (data.mfaSetupRequired) {
+        setError(data.message ?? 'MFA enrollment is required before using the admin console.');
+        return;
+      }
       router.push('/dashboard');
     } catch (err: any) {
       setError(err?.response?.data?.message ?? err?.message ?? 'Login failed');

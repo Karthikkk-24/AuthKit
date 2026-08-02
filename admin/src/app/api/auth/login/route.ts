@@ -42,6 +42,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: 200 });
   }
 
+  // MFA enrollment required for role — do not mint a console session
+  if (data.mfaSetupRequired) {
+    return NextResponse.json(
+      {
+        mfaSetupRequired: true,
+        message:
+          data.message ??
+          'MFA enrollment is required before using the admin console. Configure MFA via the API, then sign in again.',
+      },
+      { status: 403 },
+    );
+  }
+
   if (!data.accessToken) {
     return NextResponse.json({ message: 'Unexpected login response' }, { status: 502 });
   }
