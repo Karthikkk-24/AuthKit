@@ -238,6 +238,12 @@ export class AuthService {
     const newAttempts = user.failedLoginAttempts + 1;
     const shouldLock = newAttempts >= lockConfig.maxAttempts;
 
+    // Progressive delay: slow down successive failures to blunt brute force (#22)
+    if (lockConfig.progressiveDelay && !shouldLock) {
+      const delayMs = Math.min(2 ** (newAttempts - 1) * 500, 10_000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: {

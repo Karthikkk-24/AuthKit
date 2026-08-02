@@ -20,6 +20,7 @@ import {
   ApiBearerAuth,
   ApiResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import {
@@ -61,6 +62,8 @@ export class AuthController {
   }
 
   // ─── REGISTER ──────────────────────────────────────────────────────
+  // Throttle defaults come from security.rateLimit.register (3600_000 ms / 10)
+  @Throttle({ default: { ttl: 3_600_000, limit: 10 } })
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -108,6 +111,8 @@ export class AuthController {
   }
 
   // ─── LOGIN ─────────────────────────────────────────────────────────
+  // Throttle per security.rateLimit.login (900_000 ms / 5)
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -150,6 +155,8 @@ export class AuthController {
   }
 
   // ─── PASSWORD ──────────────────────────────────────────────────────
+  // Throttle per security.rateLimit.passwordReset (3600_000 ms / 3)
+  @Throttle({ default: { ttl: 3_600_000, limit: 3 } })
   @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
@@ -222,6 +229,7 @@ export class AuthController {
   }
 
   // ─── MAGIC LINK ────────────────────────────────────────────────────
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('magic-link')
   @HttpCode(HttpStatus.OK)
