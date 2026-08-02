@@ -19,10 +19,13 @@ export default function LoginPage() {
     setError('');
     try {
       const data = await authApi.login(email, password);
-      localStorage.setItem('ak_token', data.accessToken);
+      if (data.requiresMfa) {
+        setError('MFA is required for this account. Complete MFA via the API, then sign in again.');
+        return;
+      }
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'Login failed');
+      setError(err?.response?.data?.message ?? err?.message ?? 'Login failed');
     } finally {
       setLoading(false);
     }
