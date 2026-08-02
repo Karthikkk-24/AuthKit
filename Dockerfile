@@ -1,4 +1,5 @@
 # ── Stage 1: Builder ──────────────────────────────────────────────────
+# NestJS API lives at the repo root; admin is the Next.js workspace package.
 FROM node:20-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -7,7 +8,6 @@ WORKDIR /app
 
 # Copy workspace manifests first for layer caching
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY api/package.json ./api/
 COPY admin/package.json ./admin/
 
 RUN pnpm install --frozen-lockfile
@@ -15,11 +15,13 @@ RUN pnpm install --frozen-lockfile
 # Copy all source
 COPY . .
 
-# Build the NestJS API
-WORKDIR /app/api
+# Build the NestJS API (root package)
 RUN pnpm build
 
-# Build the Next.js admin
+# Generate Prisma client for the runtime image
+RUN npx prisma generate
+
+# Build the Next.js admin (standalone output expected via next.config)
 WORKDIR /app/admin
 RUN pnpm build
 
@@ -30,19 +32,19 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
-COPY --from=builder /app/api/package.json ./api/
+COPY --from=builder /app/admin/package.json ./admin/
 RUN pnpm install --prod --frozen-lockfile
 
-COPY --from=builder /app/api/dist ./api/dist
+COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
-
-# Generate Prisma client
-RUN cd api && npx prisma generate
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/authkit.config.json ./authkit.config.json
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "api/dist/main.js"]
+CMD ["node", "dist/main.js"]
 
 # ── Stage 3: Admin Runtime ────────────────────────────────────────────
 FROM node:20-alpine AS admin
