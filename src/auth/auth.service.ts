@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 import { RegisterDto, LoginDto, ResetPasswordDto, ChangePasswordDto } from './dto/auth.dto';
+import { CryptoService } from './crypto.service';
 import * as crypto from 'crypto';
 import * as speakeasy from 'speakeasy';
 
@@ -27,12 +28,21 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly passwordService: PasswordService,
+    private readonly cryptoService: CryptoService,
     private readonly blacklist: TokenBlacklistService,
     private readonly email: EmailService,
     private readonly audit: AuditService,
     private readonly config: ConfigLoaderService,
     private readonly webhooks: WebhookService,
   ) {}
+
+  /** True when MFA features are enabled globally and the given method is allowed. */
+  private isMfaMethodAllowed(method: 'totp' | 'email'): boolean {
+    const mfaConfig = this.config.get<any>('mfa');
+    if (!mfaConfig?.enabled || !this.config.isFeatureEnabled('mfa')) return false;
+    const methods: string[] = Array.isArray(mfaConfig.methods) ? mfaConfig.methods : ['totp'];
+    return methods.includes(method);
+  }
 
   private emitWebhook(event: WebhookEventType, payload: Record<string, any>) {
     void this.webhooks.dispatch(event, payload).catch((err) => {
@@ -246,6 +256,7 @@ export class AuthService {
   async login(user: any, dto: LoginDto, req: any) {
     const authConfig = this.config.get<any>('auth');
     const regConfig = authConfig.registration;
+    const mfaConfig = this.config.get<any>('mfa');
 
     // Email verification check
     if (regConfig.requireEmailVerification && !user.emailVerifiedAt) {
@@ -254,12 +265,50 @@ export class AuthService {
       );
     }
 
-    // MFA check
-    if (user.isMfaEnabled) {
+    // MFA check — enforced for opted-in users, and required for configured
+    // roles (#23). When a required-role user hasn't enrolled yet they are
+    // told to enroll before a session is created.
+    const roleName = user.role?.name;
+    const mfaMandatory =
+      mfaConfig?.required === true ||
+      (Array.isArray(mfaConfig?.requiredForRoles) &&
+        roleName != null &&
+        mfaConfig.requiredForRoles.includes(roleName));
+
+    if (user.isMfaEnabled || mfaMandatory) {
+      if (!user.isMfaEnabled && mfaMandatory) {
+        // Enrollment flow: issue a short-lived, scope-limited token that only
+        // permits calling the MFA setup endpoints.
+        const setupToken = await this.jwt.signAsync(
+          {
+            sub: user.id,
+            email: user.email,
+            roleId: user.roleId,
+            roleName: user.role?.name,
+            type: 'mfa_setup',
+          },
+          { expiresIn: '10m' },
+        );
+        return {
+          mfaSetupRequired: true,
+          setupToken,
+          tokenType: 'Bearer',
+          expiresIn: '10m',
+          message: `MFA is required for the "${roleName}" role. Use the setup token to configure an authenticator via /auth/mfa/totp/*, then sign in again.`,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role?.name,
+          },
+        };
+      }
       if (!dto.mfaCode) {
         return { requiresMfa: true, userId: user.id };
       }
-      await this.verifyMfa(user.id, dto.mfaCode, false);
+      // Backup codes are accepted in the mfaCode field so the client does not
+      // need to know which factor the user typed (#23).
+      await this.verifyMfaWithFallback(user.id, dto.mfaCode);
     }
 
     return this.createTokens(user, req);
@@ -647,7 +696,24 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────────────────
   // MFA
   // ─────────────────────────────────────────────────────────────────────
+  /** Decrypt a stored TOTP secret, tolerating legacy plaintext values. */
+  private decryptTotpSecret(stored: string): string {
+    // Encrypted payloads have the iv.tag.data dot-separated shape.
+    if (stored.includes('.')) {
+      try {
+        return this.cryptoService.decrypt(stored);
+      } catch (err) {
+        this.logger.error('Failed to decrypt TOTP secret', err);
+        throw new UnauthorizedException('MFA credential is corrupted');
+      }
+    }
+    return stored; // legacy plaintext
+  }
+
   async setupTotp(userId: string) {
+    if (!this.isMfaMethodAllowed('totp')) {
+      throw new BadRequestException('TOTP MFA is disabled');
+    }
     const mfaConfig = this.config.get<any>('mfa');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
@@ -657,17 +723,20 @@ export class AuthService {
       issuer: mfaConfig.totpIssuer,
     });
 
+    // Encrypt the shared secret at rest (#23); decrypt via decryptTotpSecret.
+    const encryptedSecret = this.cryptoService.encrypt(secret.base32);
+
     // Store (not yet enabled — user must verify first)
     await this.prisma.mfaCredential.upsert({
       where: { userId_type: { userId, type: 'TOTP' } },
       create: {
         userId,
         type: 'TOTP',
-        secret: secret.base32,
+        secret: encryptedSecret,
         isEnabled: false,
       },
       update: {
-        secret: secret.base32,
+        secret: encryptedSecret,
         isEnabled: false,
       },
     });
@@ -679,13 +748,16 @@ export class AuthService {
   }
 
   async enableTotp(userId: string, code: string) {
+    if (!this.isMfaMethodAllowed('totp')) {
+      throw new BadRequestException('TOTP MFA is disabled');
+    }
     const cred = await this.prisma.mfaCredential.findUnique({
       where: { userId_type: { userId, type: 'TOTP' } },
     });
     if (!cred || !cred.secret) throw new BadRequestException('TOTP not set up');
 
     const valid = speakeasy.totp.verify({
-      secret: cred.secret,
+      secret: this.decryptTotpSecret(cred.secret),
       encoding: 'base32',
       token: code,
       window: 1,
@@ -745,12 +817,57 @@ export class AuthService {
     }
 
     const valid = speakeasy.totp.verify({
-      secret: cred.secret!,
+      secret: this.decryptTotpSecret(cred.secret!),
       encoding: 'base32',
       token: code,
       window: 1,
     });
     if (!valid) throw new UnauthorizedException('Invalid MFA code');
+    return true;
+  }
+
+  /**
+   * During login, accept whichever enabled factor the user provided —
+   * TOTP, an EMAIL OTP, or a backup code — without the client having to
+   * declare the factor type (#18, #23).
+   */
+  private async verifyMfaWithFallback(userId: string, code: string) {
+    if (!code) throw new UnauthorizedException('MFA code is required');
+
+    // 1) TOTP against the enrolled credential.
+    try {
+      await this.verifyMfa(userId, code, false);
+      return true;
+    } catch {
+      // not a valid TOTP (or TOTP not enrolled) — keep trying
+    }
+
+    // 2) Single-use backup code on the TOTP credential.
+    try {
+      await this.verifyMfa(userId, code, true);
+      return true;
+    } catch {
+      // not a backup code either — keep trying
+    }
+
+    // 3) Pending EMAIL OTP.
+    await this.verifyEmailOtpCodeOnly(userId, code);
+    return true;
+  }
+
+  /**
+   * Validate a pending EMAIL OTP without enabling the factor
+   * (login-time proof). Consumes the code on success.
+   */
+  private async verifyEmailOtpCodeOnly(userId: string, code: string) {
+    const redis = this.redisClient;
+    if (!redis) throw new UnauthorizedException('Invalid MFA code');
+    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${userId}`;
+    const storedHash = await redis.get(key);
+    if (!storedHash) throw new UnauthorizedException('Invalid MFA code');
+    const hash = crypto.createHash('sha256').update(code).digest('hex');
+    if (hash !== storedHash) throw new UnauthorizedException('Invalid MFA code');
+    await redis.del(key);
     return true;
   }
 
@@ -772,6 +889,61 @@ export class AuthService {
     this.emitWebhook('mfa.disabled', { userId });
 
     return { message: 'MFA disabled' };
+  }
+
+  // ─── EMAIL OTP MFA (#18) ────────────────────────────────────────────
+  private get redisClient(): import('ioredis').Redis | null {
+    // Lazy: token-blacklist service owns the Redis connection.
+    return (this.blacklist as any).redis ?? null;
+  }
+
+  async sendEmailOtp(userId: string) {
+    if (!this.isMfaMethodAllowed('email')) {
+      throw new BadRequestException('Email MFA is disabled');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const otp = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${userId}`;
+    const redis = this.redisClient;
+    if (!redis) throw new BadRequestException('Email MFA is temporarily unavailable');
+
+    await redis.set(key, crypto.createHash('sha256').update(otp).digest('hex'), 'EX', 600);
+
+    await this.email.sendEmailOtp(user.email, user.name, otp);
+    return { message: 'Verification code sent' };
+  }
+
+  async verifyEmailOtp(userId: string, code: string) {
+    if (!this.isMfaMethodAllowed('email')) {
+      throw new BadRequestException('Email MFA is disabled');
+    }
+    if (!/^\d{6}$/.test(code)) throw new BadRequestException('Invalid code format');
+
+    const redis = this.redisClient;
+    if (!redis) throw new BadRequestException('Email MFA is temporarily unavailable');
+
+    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${userId}`;
+    const storedHash = await redis.get(key);
+    if (!storedHash) throw new UnauthorizedException('Code expired or not requested');
+
+    const hash = crypto.createHash('sha256').update(code).digest('hex');
+    if (hash !== storedHash) throw new UnauthorizedException('Invalid code');
+
+    await redis.del(key);
+
+    // Mark EMAIL MFA as verified/enabled as a side effect of proving control.
+    await this.prisma.$transaction([
+      this.prisma.mfaCredential.upsert({
+        where: { userId_type: { userId, type: 'EMAIL' } },
+        create: { userId, type: 'EMAIL', isEnabled: true, verifiedAt: new Date() },
+        update: { isEnabled: true, verifiedAt: new Date() },
+      }),
+      this.prisma.user.update({ where: { id: userId }, data: { isMfaEnabled: true } }),
+    ]);
+
+    return { message: 'Email MFA verified' };
   }
 
   // ─────────────────────────────────────────────────────────────────────

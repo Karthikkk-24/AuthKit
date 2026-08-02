@@ -132,6 +132,16 @@ export class JwtAuthGuard implements CanActivate {
         .catch(() => {});
     }
 
+    // Tokens minted for MFA enrollment are scope-limited (#23)
+    if (payload.type === 'mfa_setup') {
+      const url: string = request.url ?? '';
+      const allowed =
+        /\/auth\/mfa\//.test(url) || /\/auth\/me$/.test(url);
+      if (!allowed) {
+        throw new ForbiddenException('Token is restricted to MFA setup');
+      }
+    }
+
     request['user'] = {
       ...payload,
       id: user.id,

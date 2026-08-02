@@ -181,6 +181,25 @@ export class AuthController {
     return this.authService.disableMfa(user.id, body.password);
   }
 
+  // ─── EMAIL OTP MFA (#18) ────────────────────────────────────────────
+  @UseGuards(JwtAuthGuard)
+  @Post('mfa/email/send')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Send an email OTP for MFA verification' })
+  sendEmailOtp(@CurrentUser() user: any) {
+    return this.authService.sendEmailOtp(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('mfa/email/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify email OTP and enable email MFA' })
+  verifyEmailOtp(@CurrentUser() user: any, @Body() dto: VerifyMfaDto) {
+    return this.authService.verifyEmailOtp(user.id, dto.code);
+  }
+
   // ─── MAGIC LINK ────────────────────────────────────────────────────
   @Public()
   @Post('magic-link')
