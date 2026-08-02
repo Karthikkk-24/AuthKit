@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -58,6 +59,25 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify email address with token' })
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.authService.verifyEmail(dto.token);
+  }
+
+  /**
+   * GET click-through handler for emailed verification links (#20).
+   * Emails cannot POST, so the link targets this handler which verifies
+   * the token and redirects the browser to the frontend with a status flag.
+   */
+  @Public()
+  @Get('verify-email')
+  @ApiOperation({ summary: 'Verify email via emailed link (redirects to frontend)' })
+  async verifyEmailViaLink(@Query('token') token: string, @Res() res: Response) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    try {
+      await this.authService.verifyEmail(token);
+      res.redirect(`${frontendUrl}/login?verified=1`);
+    } catch (err: any) {
+      const reason = encodeURIComponent(err?.message || 'invalid_token');
+      res.redirect(`${frontendUrl}/login?verified=0&reason=${reason}`);
+    }
   }
 
   @UseGuards(JwtAuthGuard)
@@ -176,6 +196,32 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify magic link token and get tokens' })
   verifyMagicLink(@Body() body: { token: string }, @Req() req: Request) {
     return this.authService.verifyMagicLink(body.token, req);
+  }
+
+  /**
+   * GET click-through handler for emailed magic links (#20).
+   * Verifies the token, then redirects to the frontend with a one-time
+   * exchange code (never raw tokens in a URL — same pattern as OAuth #7).
+   */
+  @Public()
+  @Get('magic-link/verify')
+  @ApiOperation({ summary: 'Verify emailed magic link (redirects with one-time code)' })
+  async verifyMagicLinkViaLink(
+    @Query('token') token: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    try {
+      const result: any = await this.authService.verifyMagicLink(token, req);
+      // Mint a short-lived one-time code bound to the same user; the frontend
+      // exchanges it via POST /auth/oauth/exchange for tokens.
+      const code = await this.authService.createOAuthExchangeCode(result.user.id);
+      res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
+    } catch (err: any) {
+      const reason = encodeURIComponent(err?.message || 'invalid_magic_link');
+      res.redirect(`${frontendUrl}/login?magic=0&reason=${reason}`);
+    }
   }
 
   // ─── OAUTH ─────────────────────────────────────────────────────────
