@@ -221,8 +221,11 @@ export class JwtAuthGuard implements CanActivate {
     if (auth?.startsWith('ApiKey ')) {
       return auth.substring(7);
     }
+    // Reject query-param keys — they leak into logs, proxies, Referer (#69)
     if (request.query?.api_key) {
-      return request.query.api_key;
+      throw new UnauthorizedException(
+        'API keys must be sent via X-API-Key or Authorization: ApiKey header',
+      );
     }
     return null;
   }

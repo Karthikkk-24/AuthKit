@@ -68,9 +68,11 @@ export class ApiKeyGuard implements CanActivate {
     if (auth?.startsWith('ApiKey ')) {
       return auth.substring(7);
     }
-    // Query param ?api_key=
+    // Reject query-param keys (#69)
     if (request.query?.api_key) {
-      return request.query.api_key;
+      throw new UnauthorizedException(
+        'API keys must be sent via X-API-Key or Authorization: ApiKey header',
+      );
     }
     return null;
   }
