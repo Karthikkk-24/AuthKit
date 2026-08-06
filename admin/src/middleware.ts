@@ -5,9 +5,27 @@ const ACCESS_COOKIE = 'ak_access';
 const ROLE_COOKIE = 'ak_role';
 const ADMIN_ROLES = new Set(['admin', 'superadmin']);
 
+/** Decode JWT payload without verifying signature (API still verifies) (#75). */
+function roleFromAccessJwt(token: string): string | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json =
+      typeof atob === 'function'
+        ? atob(padded)
+        : Buffer.from(padded, 'base64').toString('utf8');
+    const payload = JSON.parse(json);
+    return typeof payload.roleName === 'string' ? payload.roleName : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Dashboard auth gate (#24). Requires an httpOnly access cookie and an
- * admin/superadmin role hint. Real authorization still happens on the API.
+ * Dashboard auth gate (#24, #75). Role is taken from the access JWT claim,
+ * not the forgeable ak_role cookie.
  */
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -17,17 +35,14 @@ export function middleware(req: NextRequest) {
   }
 
   const access = req.cookies.get(ACCESS_COOKIE)?.value;
-  const role = req.cookies.get(ROLE_COOKIE)?.value;
+  const roleFromJwt = access ? roleFromAccessJwt(access) : null;
 
-  if (!access || !role || !ADMIN_ROLES.has(role)) {
+  if (!access || !roleFromJwt || !ADMIN_ROLES.has(roleFromJwt)) {
     const login = new URL('/login', req.url);
     login.searchParams.set('next', pathname);
     const res = NextResponse.redirect(login);
-    // Clear stale cookies so the user isn't stuck in a redirect loop
-    if (!access || !role) {
-      res.cookies.set(ACCESS_COOKIE, '', { path: '/', maxAge: 0 });
-      res.cookies.set(ROLE_COOKIE, '', { path: '/', maxAge: 0 });
-    }
+    res.cookies.set(ACCESS_COOKIE, '', { path: '/', maxAge: 0 });
+    res.cookies.set(ROLE_COOKIE, '', { path: '/', maxAge: 0 });
     return res;
   }
 

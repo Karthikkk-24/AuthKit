@@ -6,12 +6,16 @@ import {
   cookieOptions,
   backendUrl,
 } from '@/lib/auth-cookies';
+import { assertSameOrigin } from '@/lib/csrf';
 
 /**
  * BFF OAuth / magic-link code exchange (#71).
  * Sets httpOnly cookies when the user is admin/superadmin.
  */
 export async function POST(req: NextRequest) {
+  const csrf = assertSameOrigin(req);
+  if (csrf) return csrf;
+
   let body: { code?: string; mfaCode?: string };
   try {
     body = await req.json();
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
     );
   }
   res.cookies.set(ROLE_COOKIE, roleName, {
-    httpOnly: false,
+    httpOnly: true,
     secure,
     sameSite: 'lax',
     path: '/',

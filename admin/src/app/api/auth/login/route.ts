@@ -83,9 +83,9 @@ export async function POST(req: NextRequest) {
   if (data.refreshToken) {
     res.cookies.set(REFRESH_COOKIE, data.refreshToken, cookieOptions({ maxAge: 60 * 60 * 24 * 7, secure }));
   }
-  // Non-httpOnly hint so middleware can gate on role without decoding the JWT
+  // httpOnly role hint (no longer trusted by middleware — JWT claim is) (#75)
   res.cookies.set(ROLE_COOKIE, roleName, {
-    httpOnly: false,
+    httpOnly: true,
     secure,
     sameSite: 'lax',
     path: '/',

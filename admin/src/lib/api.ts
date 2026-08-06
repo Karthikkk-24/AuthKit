@@ -63,12 +63,12 @@ export const api = axios.create({
 // ── Auth ──────────────────────────────────────────────────────────────
 export const authApi = {
   /** BFF login — sets httpOnly cookies; never exposes the JWT to JS (#24). */
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, mfaCode?: string) =>
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, mfaCode }),
     }).then(async (r) => {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {

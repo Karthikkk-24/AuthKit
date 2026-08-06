@@ -63,6 +63,12 @@ export class AuthController {
     if (!strategyOn) {
       throw new NotFoundException('Not found');
     }
+    if (strategy === 'google' || strategy === 'github') {
+      const s = this.config.get<any>('auth')?.strategies?.[strategy];
+      if (!s?.clientId || !s?.clientSecret) {
+        throw new NotFoundException('Not found');
+      }
+    }
     if (feature && !this.config.isFeatureEnabled(feature)) {
       throw new NotFoundException('Not found');
     }
@@ -377,8 +383,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current authenticated user' })
+  @ApiOperation({ summary: 'Get current authenticated user (DB profile)' })
   getMe(@CurrentUser() user: any) {
-    return user;
+    return this.authService.getProfile(user.id);
   }
 }
