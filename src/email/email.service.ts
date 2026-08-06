@@ -249,6 +249,6 @@ export class EmailService {
       `,
       'Verification code',
     );
-    await this.send(to, `Your verification code: ${otp}`, html);
+    await this.send(to, 'Your verification code', html);
   }
 }
