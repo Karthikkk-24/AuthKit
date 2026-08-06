@@ -78,19 +78,13 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  const secure = process.env.NODE_ENV === 'production';
-  res.cookies.set(ACCESS_COOKIE, data.accessToken, cookieOptions({ maxAge: 60 * 15, secure }));
+  // Let cookieOptions own Secure (forces Secure when COOKIE_SAMESITE=none) (#84)
+  res.cookies.set(ACCESS_COOKIE, data.accessToken, cookieOptions({ maxAge: 60 * 15 }));
   if (data.refreshToken) {
-    res.cookies.set(REFRESH_COOKIE, data.refreshToken, cookieOptions({ maxAge: 60 * 60 * 24 * 7, secure }));
+    res.cookies.set(REFRESH_COOKIE, data.refreshToken, cookieOptions({ maxAge: 60 * 60 * 24 * 7 }));
   }
   // httpOnly role hint (no longer trusted by middleware — JWT claim is) (#75)
-  res.cookies.set(ROLE_COOKIE, roleName, {
-    httpOnly: true,
-    secure,
-    sameSite: cookieOptions({ maxAge: 1 }).sameSite,
-    path: '/',
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  res.cookies.set(ROLE_COOKIE, roleName, cookieOptions({ maxAge: 60 * 60 * 24 * 7 }));
 
   return res;
 }

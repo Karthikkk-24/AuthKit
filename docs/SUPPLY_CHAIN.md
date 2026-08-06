@@ -1,6 +1,6 @@
 ## Supply-chain triage (#82)
 
-Snapshot after P4 bumps (Next 16.3.0 + pnpm overrides for `qs`, `body-parser`, `nanoid`, `diff`, `sharp`, `postcss`).
+Snapshot after P4 bumps (Next 16.3.0 + pnpm overrides for `qs`, `body-parser`, `nanoid`, `diff`, `postcss`).
 
 ### Process
 1. `pnpm audit --prod` (CI hard-fails on **critical**)
