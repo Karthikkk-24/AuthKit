@@ -36,7 +36,13 @@ export class IpListGuard implements CanActivate {
       request.socket?.remoteAddress ||
       request.connection?.remoteAddress;
 
-    if (!ip) return true; // unable to determine IP — let other guards decide
+    // When allow/block lists are configured, refuse unknown client IPs (#96)
+    if (!ip) {
+      if (allowlist.length > 0 || blocklist.length > 0) {
+        throw new ForbiddenException('Unable to determine client IP');
+      }
+      return true;
+    }
     const normalized = this.normalize(ip);
 
     // Non-empty allowlist is exclusive: only listed IPs may proceed (#22).
