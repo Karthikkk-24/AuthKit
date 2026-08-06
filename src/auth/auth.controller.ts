@@ -235,6 +235,7 @@ export class AuthController {
    * Complete passwordless (OAuth / magic-link) MFA challenge (#60).
    * First-factor proof is the one-time mfaToken; second factor is mfaCode.
    */
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('mfa/complete')
   @HttpCode(HttpStatus.OK)

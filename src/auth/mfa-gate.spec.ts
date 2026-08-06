@@ -37,6 +37,7 @@ describe('MFA gate on passwordless auth (#60)', () => {
           user: overrides.user ?? userWithMfa,
         }),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn().mockResolvedValue({}),
       },
       session: {
@@ -185,6 +186,50 @@ describe('MFA gate on passwordless auth (#60)', () => {
     const result = await service.completeMfaLogin('mfa-token', '123456', {});
 
     expect(result).toBe(tokens);
-    expect(prisma.emailVerification.update).toHaveBeenCalled();
+    expect(prisma.emailVerification.updateMany).toHaveBeenCalled();
+  });
+
+  it('exchangeOAuthCode does not burn code when mfaCode is invalid', async () => {
+    const { service, prisma } = makeService({
+      user: userWithMfa,
+      verifyMfaOk: false,
+    });
+
+    await expect(
+      service.exchangeOAuthCode('oauth-code', {}, '000000'),
+    ).rejects.toThrow();
+
+    expect(prisma.emailVerification.update).not.toHaveBeenCalled();
+    expect((service as any).createTokens).not.toHaveBeenCalled();
+  });
+
+  it('exchangeOAuthCode returns mfaSetupRequired for mandatory-role users without MFA', async () => {
+    const { service } = makeService({
+      user: userNoMfa,
+      mfaConfig: { required: false, requiredForRoles: ['user'] },
+    });
+
+    const result: any = await service.exchangeOAuthCode('oauth-code', {});
+
+    expect(result.mfaSetupRequired).toBe(true);
+    expect(result.setupToken).toEqual(expect.any(String));
+    expect((service as any).createTokens).not.toHaveBeenCalled();
+  });
+
+  it('completeMfaLogin rejects already-claimed tokens (race)', async () => {
+    const { service, prisma } = makeService({ user: userWithMfa });
+    prisma.emailVerification.findUnique.mockResolvedValue({
+      id: 'ev-mfa',
+      purpose: 'mfa_login',
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      user: userWithMfa,
+    });
+    prisma.emailVerification.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.completeMfaLogin('mfa-token', '123456', {}),
+    ).rejects.toThrow(/already used|expired/i);
+    expect((service as any).createTokens).not.toHaveBeenCalled();
   });
 });

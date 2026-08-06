@@ -470,12 +470,28 @@ export class AuthService {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
 
-    await this.verifyMfaWithFallback(record.user.id, mfaCode);
-
-    await this.prisma.emailVerification.update({
-      where: { id: record.id },
+    // Atomically claim the token before verifying MFA so concurrent requests
+    // with the same mfaToken cannot mint two sessions (#60 review).
+    const claimed = await this.prisma.emailVerification.updateMany({
+      where: {
+        id: record.id,
+        purpose: 'mfa_login',
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
       data: { usedAt: new Date() },
     });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('MFA token already used or expired');
+    }
+
+    try {
+      await this.verifyMfaWithFallback(record.user.id, mfaCode);
+    } catch (err) {
+      // Invalid code: leave token marked used (one-shot) so attackers cannot
+      // brute-force against a live mfaToken. Client must restart first-factor auth.
+      throw err;
+    }
 
     return this.createTokens(record.user, req);
   }
@@ -1240,15 +1256,58 @@ export class AuthService {
   }
 
   async verifyMagicLink(token: string, req: any, mfaCode?: string) {
-    const user = await this.consumeMagicLinkToken(token);
+    // Peek first so a wrong mfaCode does not burn the magic-link token when the
+    // client attempted a one-shot verify+MFA (#60 review).
+    const user = await this.peekMagicLinkUser(token);
 
-    // Shared MFA gate before createTokens (#60)
-    const mfa = await this.applyMfaGate(user, mfaCode, {
+    if (mfaCode) {
+      await this.verifyMfaWithFallback(user.id, mfaCode);
+      // MFA ok — consume and mint
+      await this.consumeMagicLinkToken(token);
+      return this.createTokens(user, req);
+    }
+
+    const mfa = await this.applyMfaGate(user, undefined, {
       challengeStyle: 'token',
     });
-    if (mfa.kind !== 'ok') return mfa.response;
+    if (mfa.kind !== 'ok') {
+      // Challenge / setup: consume magic link so it cannot be replayed, then
+      // hand the client an mfaToken or setupToken.
+      await this.consumeMagicLinkToken(token);
+      return mfa.response;
+    }
 
+    await this.consumeMagicLinkToken(token);
     return this.createTokens(user, req);
+  }
+
+  /** Load magic-link user without marking the token used. */
+  private async peekMagicLinkUser(token: string) {
+    if (
+      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isFeatureEnabled('magicLink')
+    ) {
+      throw new BadRequestException('Magic link authentication is disabled');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const record = await this.prisma.emailVerification.findUnique({
+      where: { tokenHash },
+      include: {
+        user: { include: { role: { include: { permissions: true } } } },
+      },
+    });
+
+    if (!record || record.purpose !== 'magic_link') {
+      throw new BadRequestException('Invalid magic link');
+    }
+    if (record.usedAt) throw new BadRequestException('Magic link already used');
+    if (record.expiresAt < new Date()) throw new BadRequestException('Magic link expired');
+    if (record.user.deletedAt || record.user.isLocked) {
+      throw new UnauthorizedException('Account is not allowed to sign in');
+    }
+
+    return record.user;
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1298,18 +1357,32 @@ export class AuthService {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
 
+    const user = record.user;
+
+    // When the client already sent mfaCode, verify MFA *before* burning the
+    // exchange code so a typo does not force a full OAuth restart (#60 review).
+    if (mfaCode) {
+      await this.verifyMfaWithFallback(user.id, mfaCode);
+      await this.prisma.emailVerification.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      });
+      return this.createTokens(user, req);
+    }
+
+    const mfa = await this.applyMfaGate(user, undefined, {
+      challengeStyle: 'token',
+    });
+
+    // Always consume the one-time exchange code once we know the outcome path
+    // (tokens, MFA challenge, or setup). Prevents replay of the oauth code.
     await this.prisma.emailVerification.update({
       where: { id: record.id },
       data: { usedAt: new Date() },
     });
 
-    // Shared MFA gate before createTokens (#60)
-    const mfa = await this.applyMfaGate(record.user, mfaCode, {
-      challengeStyle: 'token',
-    });
     if (mfa.kind !== 'ok') return mfa.response;
-
-    return this.createTokens(record.user, req);
+    return this.createTokens(user, req);
   }
 
   // ─────────────────────────────────────────────────────────────────────
