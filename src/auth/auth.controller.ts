@@ -36,6 +36,7 @@ import {
   ExchangeOAuthCodeDto,
   CompleteMfaLoginDto,
   VerifyMagicLinkDto,
+  DisableMfaDto,
 } from './dto/auth.dto';
 import { NotFoundException } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
@@ -52,21 +53,24 @@ export class AuthController {
     private readonly config: ConfigLoaderService,
   ) {}
 
-  /** 404 when a strategy/feature is disabled so disabled endpoints look absent. */
+  /** 404 when a strategy/feature is disabled so disabled endpoints look absent.
+   * Feature flags are ANDed with the strategy (#90) — both must allow the flow. */
   private requireStrategy(
     strategy: 'local' | 'google' | 'github' | 'magicLink' | 'apiKey',
     feature?: 'magicLink' | 'registration' | 'passwordReset',
   ) {
     const strategyOn = this.config.isStrategyEnabled(strategy);
-    const featureOn = feature ? this.config.isFeatureEnabled(feature) : true;
-    if (!strategyOn && !featureOn) {
+    if (!strategyOn) {
+      throw new NotFoundException('Not found');
+    }
+    if (feature && !this.config.isFeatureEnabled(feature)) {
       throw new NotFoundException('Not found');
     }
   }
 
   // ─── REGISTER ──────────────────────────────────────────────────────
   // Throttle defaults come from security.rateLimit.register (3600_000 ms / 10)
-  @Throttle({ default: { ttl: 3_600_000, limit: 10 } })
+  @Throttle({ long: { ttl: 3_600_000, limit: 10 } })
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -98,12 +102,13 @@ export class AuthController {
     try {
       await this.authService.verifyEmail(token);
       res.redirect(`${frontendUrl}/login?verified=1`);
-    } catch (err: any) {
-      const reason = encodeURIComponent(err?.message || 'invalid_token');
-      res.redirect(`${frontendUrl}/login?verified=0&reason=${reason}`);
+    } catch {
+      // Stable codes only — never reflect internal exception text into the URL (#73)
+      res.redirect(`${frontendUrl}/login?verified=0&reason=invalid_token`);
     }
   }
 
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @UseGuards(JwtAuthGuard)
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
@@ -115,7 +120,7 @@ export class AuthController {
 
   // ─── LOGIN ─────────────────────────────────────────────────────────
   // Throttle per security.rateLimit.login (900_000 ms / 5)
-  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -128,6 +133,7 @@ export class AuthController {
   }
 
   // ─── REFRESH TOKEN ─────────────────────────────────────────────────
+  @Throttle({ medium: { ttl: 900_000, limit: 30 } })
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -159,7 +165,7 @@ export class AuthController {
 
   // ─── PASSWORD ──────────────────────────────────────────────────────
   // Throttle per security.rateLimit.passwordReset (3600_000 ms / 3)
-  @Throttle({ default: { ttl: 3_600_000, limit: 3 } })
+  @Throttle({ long: { ttl: 3_600_000, limit: 3 } })
   @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
@@ -169,6 +175,7 @@ export class AuthController {
     return this.authService.forgotPassword(dto.email, req);
   }
 
+  @Throttle({ long: { ttl: 3_600_000, limit: 3 } })
   @Public()
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
@@ -207,12 +214,19 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Delete('mfa/disable')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Disable MFA (requires password confirmation)' })
-  disableMfa(@CurrentUser() user: any, @Body() body: { password: string }) {
-    return this.authService.disableMfa(user.id, body.password);
+  @ApiOperation({
+    summary:
+      'Disable MFA (password accounts: password; OAuth-only: current TOTP/email OTP/backup code)',
+  })
+  disableMfa(
+    @CurrentUser() user: any,
+    @Body() body: DisableMfaDto,
+  ) {
+    return this.authService.disableMfa(user.id, body.password, body.mfaCode);
   }
 
   // ─── EMAIL OTP MFA (#18) ────────────────────────────────────────────
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @UseGuards(JwtAuthGuard)
   @Post('mfa/email/send')
   @HttpCode(HttpStatus.OK)
@@ -235,7 +249,7 @@ export class AuthController {
    * Complete passwordless (OAuth / magic-link) MFA challenge (#60).
    * First-factor proof is the one-time mfaToken; second factor is mfaCode.
    */
-  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('mfa/complete')
   @HttpCode(HttpStatus.OK)
@@ -247,7 +261,7 @@ export class AuthController {
   }
 
   // ─── MAGIC LINK ────────────────────────────────────────────────────
-  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('magic-link')
   @HttpCode(HttpStatus.OK)
@@ -257,7 +271,7 @@ export class AuthController {
     return this.authService.sendMagicLink(dto.email, req);
   }
 
-  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('magic-link/verify')
   @HttpCode(HttpStatus.OK)
@@ -287,9 +301,9 @@ export class AuthController {
       const user = await this.authService.consumeMagicLinkToken(token);
       const code = await this.authService.createOAuthExchangeCode(user.id);
       res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
-    } catch (err: any) {
-      const reason = encodeURIComponent(err?.message || 'invalid_magic_link');
-      res.redirect(`${frontendUrl}/login?magic=0&reason=${reason}`);
+    } catch {
+      // Stable codes only — never reflect internal exception text into the URL (#73)
+      res.redirect(`${frontendUrl}/login?magic=0&reason=invalid_magic_link`);
     }
   }
 
@@ -333,7 +347,7 @@ export class AuthController {
     res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
   }
 
-  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('oauth/exchange')
   @HttpCode(HttpStatus.OK)
