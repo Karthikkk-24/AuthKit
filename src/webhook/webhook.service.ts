@@ -44,10 +44,22 @@ export class WebhookService {
   async dispatch(event: WebhookEventType, payload: Record<string, any>) {
     if (!this.isDispatchEnabled()) return;
 
+    // Tenant isolation (#61): only deliver to endpoints owned by the event
+    // subject. Without this filter every active subscriber receives every
+    // matching event platform-wide (cross-tenant leak).
+    const ownerId = payload?.userId;
+    if (!ownerId || typeof ownerId !== 'string') {
+      this.logger.warn(
+        `Skipping webhook dispatch for ${event}: payload missing userId`,
+      );
+      return;
+    }
+
     const endpoints = await this.prisma.webhook.findMany({
       where: {
         isActive: true,
         events: { has: event },
+        userId: ownerId,
       },
     });
 
