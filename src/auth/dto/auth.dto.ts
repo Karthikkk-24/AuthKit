@@ -99,3 +99,35 @@ export class VerifyMfaDto {
   @IsBoolean()
   isBackupCode?: boolean;
 }
+
+export class ExchangeOAuthCodeDto {
+  @ApiProperty({ description: 'One-time OAuth / magic-link exchange code' })
+  @IsString()
+  code: string;
+
+  @ApiPropertyOptional({ description: 'TOTP / email OTP / backup code when MFA is enrolled' })
+  @IsOptional()
+  @IsString()
+  mfaCode?: string;
+}
+
+export class CompleteMfaLoginDto {
+  @ApiProperty({ description: 'One-time MFA challenge token from OAuth/magic-link' })
+  @IsString()
+  mfaToken: string;
+
+  @ApiProperty({ description: 'TOTP / email OTP / backup code' })
+  @IsString()
+  mfaCode: string;
+}
+
+export class VerifyMagicLinkDto {
+  @ApiProperty()
+  @IsString()
+  token: string;
+
+  @ApiPropertyOptional({ description: 'TOTP / email OTP / backup code when MFA is enrolled' })
+  @IsOptional()
+  @IsString()
+  mfaCode?: string;
+}

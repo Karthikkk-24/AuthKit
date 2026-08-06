@@ -33,6 +33,9 @@ import {
   VerifyEmailDto,
   MagicLinkRequestDto,
   VerifyMfaDto,
+  ExchangeOAuthCodeDto,
+  CompleteMfaLoginDto,
+  VerifyMagicLinkDto,
 } from './dto/auth.dto';
 import { NotFoundException } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
@@ -228,6 +231,20 @@ export class AuthController {
     return this.authService.verifyEmailOtp(user.id, dto.code);
   }
 
+  /**
+   * Complete passwordless (OAuth / magic-link) MFA challenge (#60).
+   * First-factor proof is the one-time mfaToken; second factor is mfaCode.
+   */
+  @Public()
+  @Post('mfa/complete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Complete MFA after OAuth or magic-link first-factor auth',
+  })
+  completeMfaLogin(@Body() dto: CompleteMfaLoginDto, @Req() req: Request) {
+    return this.authService.completeMfaLogin(dto.mfaToken, dto.mfaCode, req);
+  }
+
   // ─── MAGIC LINK ────────────────────────────────────────────────────
   @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
@@ -242,32 +259,31 @@ export class AuthController {
   @Public()
   @Post('magic-link/verify')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify magic link token and get tokens' })
-  verifyMagicLink(@Body() body: { token: string }, @Req() req: Request) {
+  @ApiOperation({
+    summary: 'Verify magic link token and get tokens (MFA-gated when enrolled)',
+  })
+  verifyMagicLink(@Body() body: VerifyMagicLinkDto, @Req() req: Request) {
     this.requireStrategy('magicLink', 'magicLink');
-    return this.authService.verifyMagicLink(body.token, req);
+    return this.authService.verifyMagicLink(body.token, req, body.mfaCode);
   }
 
   /**
    * GET click-through handler for emailed magic links (#20).
-   * Verifies the token, then redirects to the frontend with a one-time
-   * exchange code (never raw tokens in a URL — same pattern as OAuth #7).
+   * Consumes the magic-link token and redirects with a one-time exchange code
+   * (never raw tokens / never a premature session — MFA runs on exchange #60).
    */
   @Public()
   @Get('magic-link/verify')
   @ApiOperation({ summary: 'Verify emailed magic link (redirects with one-time code)' })
   async verifyMagicLinkViaLink(
     @Query('token') token: string,
-    @Req() req: Request,
     @Res() res: Response,
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
     this.requireStrategy('magicLink', 'magicLink');
     try {
-      const result: any = await this.authService.verifyMagicLink(token, req);
-      // Mint a short-lived one-time code bound to the same user; the frontend
-      // exchanges it via POST /auth/oauth/exchange for tokens.
-      const code = await this.authService.createOAuthExchangeCode(result.user.id);
+      const user = await this.authService.consumeMagicLinkToken(token);
+      const code = await this.authService.createOAuthExchangeCode(user.id);
       res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
     } catch (err: any) {
       const reason = encodeURIComponent(err?.message || 'invalid_magic_link');
@@ -319,10 +335,11 @@ export class AuthController {
   @Post('oauth/exchange')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Exchange OAuth one-time code for access and refresh tokens',
+    summary:
+      'Exchange OAuth/magic-link one-time code for tokens (MFA-gated when enrolled)',
   })
-  exchangeOAuthCode(@Body() body: { code: string }, @Req() req: Request) {
-    return this.authService.exchangeOAuthCode(body.code, req);
+  exchangeOAuthCode(@Body() body: ExchangeOAuthCodeDto, @Req() req: Request) {
+    return this.authService.exchangeOAuthCode(body.code, req, body.mfaCode);
   }
 
   // ─── ME ────────────────────────────────────────────────────────────

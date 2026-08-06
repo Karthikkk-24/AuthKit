@@ -178,7 +178,7 @@ model EmailVerification {
     user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
     tokenHash String    @unique
     /// Discriminates token purpose so verification emails cannot mint sessions via magic-link verify.
-    /// Values: email_verification | magic_link | oauth_exchange
+    /// Values: email_verification | magic_link | oauth_exchange | mfa_login
     purpose   String    @default("email_verification")
     expiresAt DateTime
     usedAt    DateTime?
