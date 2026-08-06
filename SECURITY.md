@@ -115,7 +115,7 @@ Prefer `Lax` + Origin checks unless you fully control all auth entry URLs on the
 
 ## Safe defaults for deployers
 
-1. Set unique `SEED_ADMIN_PASSWORD` (required in production; local seed generates a one-time password if unset)
+1. Set unique `SEED_ADMIN_PASSWORD` (required in production; local seed writes a one-time password to `.authkit-seed-password` if unset)
 2. Run `npm run keys:generate` and keep `./keys` out of git
 3. Enable email verification and review `authkit.config.json` feature flags
 4. Restrict CORS origins; keep Redis authenticated
