@@ -45,6 +45,9 @@ coverage/
 prisma/*.db
 prisma/*.db-journal
 
+# Local one-time seed admin password (#83)
+.authkit-seed-password
+
 # Uploads / temp
 uploads/
 tmp/

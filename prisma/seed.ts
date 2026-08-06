@@ -214,8 +214,13 @@ async function main() {
 
   console.log(`     ✔ Superadmin: ${superadminEmail}`);
   if (generatedLocalPassword && !existing) {
+    // Write to a local file (never console.log the secret — CodeQL js/clear-text-logging)
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const outFile = path.join(process.cwd(), '.authkit-seed-password');
+    fs.writeFileSync(outFile, `${superadminPassword}\n`, { mode: 0o600 });
     console.log(
-      `     🔑 Generated one-time SEED_ADMIN_PASSWORD (save now; not stored in plaintext):\n        ${superadminPassword}`,
+      `     🔑 One-time admin password written to ${outFile} (mode 0600). Save it, then delete the file.`,
     );
     console.log(
       '     ⚠  Set SEED_ADMIN_PASSWORD in .env for stable local re-seeds.\n',
