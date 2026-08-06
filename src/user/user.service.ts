@@ -297,6 +297,21 @@ export class UserService {
     return this.prisma.session.findMany({
       where: { userId, isRevoked: false, expiresAt: { gt: new Date() } },
       orderBy: { lastActiveAt: 'desc' },
+      // Never return refreshTokenHash / familyId (#94)
+      select: {
+        id: true,
+        ip: true,
+        userAgent: true,
+        deviceName: true,
+        deviceType: true,
+        browser: true,
+        os: true,
+        country: true,
+        city: true,
+        lastActiveAt: true,
+        createdAt: true,
+        expiresAt: true,
+      },
     });
   }
 
