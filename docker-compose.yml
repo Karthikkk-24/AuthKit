@@ -60,6 +60,8 @@ services:
       DATABASE_URL: postgresql://authkit:${POSTGRES_PASSWORD:-authkit_dev_only_change_me}@postgres:5432/authkit?schema=public
       REDIS_URL: redis://:${REDIS_PASSWORD:-authkit_redis_dev_only}@redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set for the api service}
+      AUTHKIT_SECRET_KEY: ${AUTHKIT_SECRET_KEY:?AUTHKIT_SECRET_KEY must be a 64-char hex string}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       JWT_ACCESS_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 7d
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}

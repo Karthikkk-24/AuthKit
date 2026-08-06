@@ -9,18 +9,20 @@ export class TokenBlacklistService {
 
   constructor(@InjectRedis() private readonly redis: Redis) {}
 
+  /**
+   * Check if a token is blacklisted.
+   * Fail closed whenever Redis is configured and reachable is expected:
+   * production, AUTHKIT_STRICT_REDIS=true, or AUTHKIT_REDIS_FAIL_CLOSED=true (#76).
+   * Development defaults fail-open so local DX is not blocked by Redis outages.
+   */
   private get isStrict(): boolean {
+    if (process.env.AUTHKIT_REDIS_FAIL_OPEN === 'true') return false;
     return (
       process.env.NODE_ENV === 'production' ||
-      process.env.AUTHKIT_STRICT_REDIS === 'true'
+      process.env.AUTHKIT_STRICT_REDIS === 'true' ||
+      process.env.AUTHKIT_REDIS_FAIL_CLOSED === 'true'
     );
   }
-
-  /**
-   * Blacklist a token until its expiry time
-   * @param token The raw JWT string
-   * @param expiresInSeconds How many seconds until the token would expire
-   */
   async blacklist(token: string, expiresInSeconds: number): Promise<void> {
     try {
       const key = this.PREFIX + this.hashToken(token);

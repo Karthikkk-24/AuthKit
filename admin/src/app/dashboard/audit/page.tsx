@@ -26,11 +26,12 @@ interface AuditResponse {
 }
 
 const ACTION_COLORS: Record<string, string> = {
-  login: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  logout: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
-  register: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  'password.changed': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
-  'password.reset': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  'auth.login': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  'auth.logout': 'text-slate-400 bg-slate-500/10 border-slate-500/20',
+  'auth.register': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  'auth.refresh': 'text-slate-400 bg-slate-500/10 border-slate-500/20',
+  'auth.forgot_password': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  'auth.password_changed': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
   'user.locked': 'text-red-400 bg-red-500/10 border-red-500/20',
   'user.unlocked': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
   'user.deleted': 'text-red-400 bg-red-500/10 border-red-500/20',
@@ -40,6 +41,7 @@ const ACTION_COLORS: Record<string, string> = {
   'apikey.revoked': 'text-red-400 bg-red-500/10 border-red-500/20',
   'config.updated': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
   'role.permissions_updated': 'text-violet-400 bg-violet-500/10 border-violet-500/20',
+  'session.revoked': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
 };
 
 function getActionClass(action: string) {
@@ -52,13 +54,21 @@ function formatAction(action: string) {
 export default function AuditLogsPage() {
   const [page, setPage] = useState(1);
   const [actionFilter, setActionFilter] = useState('');
+  const [userIdFilter, setUserIdFilter] = useState('');
+  const [successFilter, setSuccessFilter] = useState('');
+  const [fromFilter, setFromFilter] = useState('');
+  const [toFilter, setToFilter] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<AuditResponse>({
-    queryKey: ['audit', page, actionFilter],
+    queryKey: ['audit', page, actionFilter, userIdFilter, successFilter, fromFilter, toFilter],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: '25' });
       if (actionFilter) params.set('action', actionFilter);
+      if (userIdFilter.trim()) params.set('userId', userIdFilter.trim());
+      if (successFilter) params.set('success', successFilter);
+      if (fromFilter) params.set('from', new Date(fromFilter).toISOString());
+      if (toFilter) params.set('to', new Date(toFilter).toISOString());
       return apiClient(`/audit?${params}`);
     },
     placeholderData: (p) => p,
@@ -71,6 +81,10 @@ export default function AuditLogsPage() {
   const handleExport = async () => {
     const params = new URLSearchParams();
     if (actionFilter) params.set('action', actionFilter);
+    if (userIdFilter.trim()) params.set('userId', userIdFilter.trim());
+    if (successFilter) params.set('success', successFilter);
+    if (fromFilter) params.set('from', new Date(fromFilter).toISOString());
+    if (toFilter) params.set('to', new Date(toFilter).toISOString());
     const qs = params.toString();
     const res = await apiClient<string>(`/audit/export${qs ? `?${qs}` : ''}`);
     const blob = new Blob([res], { type: 'text/csv' });
@@ -83,11 +97,12 @@ export default function AuditLogsPage() {
   };
 
   const ACTIONS = [
-    'login',
-    'logout',
-    'register',
-    'password.changed',
-    'password.reset',
+    'auth.login',
+    'auth.logout',
+    'auth.register',
+    'auth.refresh',
+    'auth.forgot_password',
+    'auth.password_changed',
     'user.locked',
     'user.unlocked',
     'user.deleted',
@@ -97,6 +112,7 @@ export default function AuditLogsPage() {
     'apikey.revoked',
     'config.updated',
     'role.permissions_updated',
+    'session.revoked',
   ];
 
   return (
@@ -114,7 +130,7 @@ export default function AuditLogsPage() {
         </button>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <select
@@ -133,6 +149,46 @@ export default function AuditLogsPage() {
             ))}
           </select>
         </div>
+        <input
+          type="text"
+          placeholder="User ID"
+          value={userIdFilter}
+          onChange={(e) => {
+            setUserIdFilter(e.target.value);
+            setPage(1);
+          }}
+          className="px-3 py-3 rounded-xl bg-slate-800/60 border border-slate-700 text-white text-sm focus:outline-none focus:border-violet-500 w-48"
+        />
+        <select
+          value={successFilter}
+          onChange={(e) => {
+            setSuccessFilter(e.target.value);
+            setPage(1);
+          }}
+          className="px-3 py-3 rounded-xl bg-slate-800/60 border border-slate-700 text-white text-sm focus:outline-none focus:border-violet-500"
+        >
+          <option value="">Success / fail</option>
+          <option value="true">Success</option>
+          <option value="false">Failure</option>
+        </select>
+        <input
+          type="date"
+          value={fromFilter}
+          onChange={(e) => {
+            setFromFilter(e.target.value);
+            setPage(1);
+          }}
+          className="px-3 py-3 rounded-xl bg-slate-800/60 border border-slate-700 text-white text-sm focus:outline-none focus:border-violet-500"
+        />
+        <input
+          type="date"
+          value={toFilter}
+          onChange={(e) => {
+            setToFilter(e.target.value);
+            setPage(1);
+          }}
+          className="px-3 py-3 rounded-xl bg-slate-800/60 border border-slate-700 text-white text-sm focus:outline-none focus:border-violet-500"
+        />
       </div>
 
       <div className="space-y-2">

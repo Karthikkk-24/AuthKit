@@ -49,3 +49,33 @@ describe('WebhookService.dispatch tenant isolation (#61)', () => {
     expect(prisma.webhook.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe('WebhookService.isPrivateIp IPv6 coverage (#81)', () => {
+  function service() {
+    return new WebhookService({} as any, {
+      get: jest.fn(),
+      isFeatureEnabled: jest.fn(),
+    } as any);
+  }
+
+  it('blocks IPv4-mapped private addresses', () => {
+    const s = service() as any;
+    expect(s.isPrivateIp('::ffff:10.0.0.1')).toBe(true);
+    expect(s.isPrivateIp('::ffff:127.0.0.1')).toBe(true);
+    expect(s.isPrivateIp('::ffff:192.168.1.1')).toBe(true);
+    expect(s.isPrivateIp('::ffff:8.8.8.8')).toBe(false);
+  });
+
+  it('blocks ULA and link-local IPv6', () => {
+    const s = service() as any;
+    expect(s.isPrivateIp('fc00::1')).toBe(true);
+    expect(s.isPrivateIp('fd12:3456:789a::1')).toBe(true);
+    expect(s.isPrivateIp('fe80::1')).toBe(true);
+    expect(s.isPrivateIp('::1')).toBe(true);
+  });
+
+  it('allows global unicast IPv6', () => {
+    const s = service() as any;
+    expect(s.isPrivateIp('2001:4860:4860::8888')).toBe(false);
+  });
+});

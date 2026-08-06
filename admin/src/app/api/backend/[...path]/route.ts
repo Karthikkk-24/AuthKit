@@ -5,13 +5,17 @@ import {
   cookieOptions,
   backendUrl,
 } from '@/lib/auth-cookies';
+import { assertSameOrigin } from '@/lib/csrf';
 
 /**
- * Same-origin BFF proxy (#24). Forwards dashboard API calls to Nest with the
+ * Same-origin BFF proxy (#24, #81). Forwards dashboard API calls to Nest with the
  * httpOnly access token attached as Authorization, so the browser never
- * needs localStorage.
+ * needs localStorage. Mutating methods require same-origin Origin/Referer.
  */
 async function proxy(req: NextRequest, pathSegments: string[]) {
+  const csrf = assertSameOrigin(req);
+  if (csrf) return csrf;
+
   const access = req.cookies.get(ACCESS_COOKIE)?.value;
   if (!access) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });

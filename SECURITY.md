@@ -90,3 +90,6 @@ Do not expose process metrics to the public internet.
 4. Restrict CORS origins; keep Redis authenticated
 5. Rotate webhook secrets periodically
 6. Keep Prometheus private (`PROMETHEUS_PUBLIC` unset in production unless firewalled)
+7. Set `AUTHKIT_SECRET_KEY` (64-char hex) for TOTP encryption at rest
+8. Set `TRUST_PROXY=1` only when behind a real reverse proxy
+9. Prefer fail-closed Redis blacklist in staging via `AUTHKIT_STRICT_REDIS=true`

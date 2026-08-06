@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WebhookService } from '../webhook/webhook.service';
+import { ConfigLoaderService } from '../config/config-loader.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -18,7 +19,17 @@ export class ApiKeyService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly webhooks: WebhookService,
+    private readonly config: ConfigLoaderService,
   ) {}
+
+  private assertFeatureEnabled() {
+    if (!this.config.isFeatureEnabled('apiKeys')) {
+      throw new NotFoundException('Not found');
+    }
+    if (!this.config.isStrategyEnabled('apiKey')) {
+      throw new NotFoundException('Not found');
+    }
+  }
 
   private emitWebhook(event: 'apikey.created' | 'apikey.revoked', payload: Record<string, any>) {
     void this.webhooks.dispatch(event, payload).catch((err) => {
@@ -42,6 +53,7 @@ export class ApiKeyService {
     },
     req: any,
   ) {
+    this.assertFeatureEnabled();
     const { raw, prefix, hashed } = this.generateKey();
     const expiresAt = dto.expiresIn
       ? new Date(Date.now() + dto.expiresIn * 86_400_000)
@@ -79,6 +91,7 @@ export class ApiKeyService {
   }
 
   async list(userId: string) {
+    this.assertFeatureEnabled();
     return this.prisma.apiKey.findMany({
       where: { userId, revokedAt: null },
       select: {
@@ -95,6 +108,7 @@ export class ApiKeyService {
   }
 
   async revoke(userId: string, keyId: string, req: any) {
+    this.assertFeatureEnabled();
     const key = await this.prisma.apiKey.findFirst({
       where: { id: keyId, userId },
     });

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { backendUrl } from '@/lib/auth-cookies';
+import { assertSameOrigin } from '@/lib/csrf';
 
 /** Public BFF proxy for password reset (#71). */
 export async function POST(req: NextRequest) {
+  const csrf = assertSameOrigin(req);
+  if (csrf) return csrf;
+
   let body: { token?: string; newPassword?: string };
   try {
     body = await req.json();

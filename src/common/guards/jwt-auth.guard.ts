@@ -159,7 +159,10 @@ export class JwtAuthGuard implements CanActivate {
     request: any,
     rawKey: string,
   ): Promise<boolean> {
-    if (!this.config.isStrategyEnabled('apiKey')) {
+    if (
+      !this.config.isStrategyEnabled('apiKey') ||
+      !this.config.isFeatureEnabled('apiKeys')
+    ) {
       throw new UnauthorizedException('API key authentication is disabled');
     }
 
