@@ -41,18 +41,39 @@ function ConfirmDialog({ open, title, message, variant, onConfirm, onCancel }: {
   );
 }
 
-function UserActions({ user, onAction }: { user: User; onAction: (a: string, u: User) => void }) {
+function UserActions({
+  user,
+  roles,
+  onAction,
+}: {
+  user: User;
+  roles: Array<{ id: string; name: string }>;
+  onAction: (a: string, u: User, roleId?: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
       <button onClick={() => setOpen(!open)} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 transition-colors"><MoreVertical className="h-4 w-4" /></button>
       {open && (<>
         <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-        <div className="absolute right-0 top-8 z-20 w-44 rounded-xl bg-slate-800 border border-slate-700 shadow-xl overflow-hidden">
+        <div className="absolute right-0 top-8 z-20 w-52 rounded-xl bg-slate-800 border border-slate-700 shadow-xl overflow-hidden">
           {!user.isLocked
             ? <button onClick={() => { setOpen(false); onAction('lock', user); }} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-orange-400 hover:bg-slate-700 transition-colors"><Lock className="h-3.5 w-3.5" /> Lock account</button>
             : <button onClick={() => { setOpen(false); onAction('unlock', user); }} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-emerald-400 hover:bg-slate-700 transition-colors"><Unlock className="h-3.5 w-3.5" /> Unlock account</button>
           }
+          <div className="border-t border-slate-700 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Assign role</p>
+            {roles.map((r) => (
+              <button
+                key={r.id}
+                disabled={user.role?.name === r.name}
+                onClick={() => { setOpen(false); onAction('assignRole', user, r.id); }}
+                className="block w-full text-left px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-700 rounded disabled:opacity-40"
+              >
+                {r.name}
+              </button>
+            ))}
+          </div>
           <button onClick={() => { setOpen(false); onAction('delete', user); }} disabled={!!user.deletedAt} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-slate-700 transition-colors disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" /> Delete user</button>
         </div>
       </>)}
@@ -72,6 +93,11 @@ export default function UsersPage() {
     placeholderData: (prev) => prev,
   });
 
+  const { data: roles = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['roles'],
+    queryFn: () => apiClient('/rbac/roles'),
+  });
+
   const lockMutation = useMutation({
     mutationFn: ({ id, lock }: { id: string; lock: boolean }) =>
       // API: POST /users/:id/{lock,unlock}; lock takes a reason body (#28)
@@ -84,8 +110,22 @@ export default function UsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
   const deleteMutation = useMutation({ mutationFn: (id: string) => apiClient(`/users/${id}`, { method: 'DELETE' }), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) });
+  const assignRoleMutation = useMutation({
+    mutationFn: ({ id, roleId }: { id: string; roleId: string }) =>
+      apiClient(`/users/${id}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ roleId }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
 
-  const handleAction = (action: string, user: User) => setConfirm({ open: true, action, user });
+  const handleAction = (action: string, user: User, roleId?: string) => {
+    if (action === 'assignRole' && roleId) {
+      assignRoleMutation.mutate({ id: user.id, roleId });
+      return;
+    }
+    setConfirm({ open: true, action, user });
+  };
   const handleConfirm = () => {
     if (!confirm.user) return;
     if (confirm.action === 'lock') lockMutation.mutate({ id: confirm.user.id, lock: true });
@@ -151,7 +191,7 @@ export default function UsersPage() {
 
                 <td className="px-6 py-4 text-sm text-slate-400">{new Date(user.createdAt).toLocaleDateString()}</td>
                 <td className="px-6 py-4 text-sm text-slate-400">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : '—'}</td>
-                <td className="px-6 py-4 text-right"><UserActions user={user} onAction={handleAction} /></td>
+                <td className="px-6 py-4 text-right"><UserActions user={user} roles={roles} onAction={handleAction} /></td>
               </tr>
             ))}
           </tbody>
