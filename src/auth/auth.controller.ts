@@ -257,6 +257,7 @@ export class AuthController {
     return this.authService.sendMagicLink(dto.email, req);
   }
 
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('magic-link/verify')
   @HttpCode(HttpStatus.OK)
@@ -332,6 +333,7 @@ export class AuthController {
     res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
   }
 
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
   @Public()
   @Post('oauth/exchange')
   @HttpCode(HttpStatus.OK)
