@@ -220,15 +220,43 @@ export class WebhookService {
   }
 
   private isPrivateIp(ip: string): boolean {
-    if (ip === '::1' || ip === '0.0.0.0') return true;
-    if (ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80')) {
-      return true; // ULA / link-local v6 (simplified)
+    const normalized = ip.trim().toLowerCase();
+
+    // IPv4-mapped IPv6 → check the embedded IPv4 (#81)
+    const mapped = normalized.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (mapped) return this.isPrivateIp(mapped[1]);
+
+    if (
+      normalized === '::1' ||
+      normalized === '0.0.0.0' ||
+      normalized === '::'
+    ) {
+      return true;
     }
 
-    const parts = ip.split('.').map(Number);
-    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
-      // Non-IPv4 (e.g. other IPv6) — treat unique local / link-local already handled
+    // IPv6 ULA (fc00::/7), link-local (fe80::/10), multicast (ff00::/8),
+    // documentation (2001:db8::/32), discard (100::/64)
+    if (normalized.includes(':')) {
+      if (
+        normalized.startsWith('fc') ||
+        normalized.startsWith('fd') ||
+        normalized.startsWith('fe8') ||
+        normalized.startsWith('fe9') ||
+        normalized.startsWith('fea') ||
+        normalized.startsWith('feb') ||
+        normalized.startsWith('ff') ||
+        normalized.startsWith('2001:db8:') ||
+        normalized.startsWith('100:')
+      ) {
+        return true;
+      }
+      // Unspecified / loopback already handled; other global unicast OK
       return false;
+    }
+
+    const parts = normalized.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+      return true; // unparseable — treat as unsafe
     }
     const [a, b] = parts;
     if (a === 10) return true;
@@ -237,6 +265,7 @@ export class WebhookService {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 0) return true;
     return false;
   }
 

@@ -6,9 +6,13 @@ import {
   clearSessionCookies,
   backendUrl,
 } from '@/lib/auth-cookies';
+import { assertSameOrigin } from '@/lib/csrf';
 
 /** BFF logout (#24): revoke the Nest session then clear httpOnly cookies. */
 export async function POST(req: NextRequest) {
+  const csrf = assertSameOrigin(req);
+  if (csrf) return csrf;
+
   const access = req.cookies.get(ACCESS_COOKIE)?.value;
 
   if (access) {
