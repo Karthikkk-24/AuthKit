@@ -3,7 +3,7 @@ import type { NextResponse as NextResponseType } from 'next/server';
 
 export const ACCESS_COOKIE = 'ak_access';
 export const REFRESH_COOKIE = 'ak_refresh';
-/** Readable role hint for middleware gating (not a secret). */
+/** Role hint cookie (httpOnly). Middleware prefers JWT roleName (#75). */
 export const ROLE_COOKIE = 'ak_role';
 
 export function backendUrl(): string {
@@ -14,11 +14,27 @@ export function backendUrl(): string {
   );
 }
 
+/**
+ * Cookie SameSite policy (#84).
+ * - Default: Lax (OAuth / magic-link top-level redirects still send cookies)
+ * - Set COOKIE_SAMESITE=strict for maximum CSRF resistance (breaks cross-site
+ *   top-level navigations that need cookies on first hit — use with CSRF Origin checks)
+ */
+export function cookieSameSite(): 'lax' | 'strict' | 'none' {
+  const raw = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
+  if (raw === 'strict' || raw === 'none' || raw === 'lax') return raw;
+  return 'lax';
+}
+
 export function cookieOptions(opts: { maxAge: number; secure?: boolean }) {
+  const sameSite = cookieSameSite();
+  const secure =
+    opts.secure ??
+    (process.env.NODE_ENV === 'production' || sameSite === 'none');
   return {
     httpOnly: true,
-    secure: opts.secure ?? process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    secure,
+    sameSite,
     path: '/',
     maxAge: opts.maxAge,
   };

@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   res.cookies.set(ROLE_COOKIE, roleName, {
     httpOnly: true,
     secure,
-    sameSite: 'lax',
+    sameSite: cookieOptions({ maxAge: 1 }).sameSite,
     path: '/',
     maxAge: 60 * 60 * 24 * 7,
   });
