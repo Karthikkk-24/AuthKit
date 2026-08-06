@@ -94,6 +94,7 @@ export class AuthController {
    * Emails cannot POST, so the link targets this handler which verifies
    * the token and redirects the browser to the frontend with a status flag.
    */
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Get('verify-email')
   @ApiOperation({ summary: 'Verify email via emailed link (redirects to frontend)' })
@@ -288,6 +289,7 @@ export class AuthController {
    * Consumes the magic-link token and redirects with a one-time exchange code
    * (never raw tokens / never a premature session — MFA runs on exchange #60).
    */
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
   @Public()
   @Get('magic-link/verify')
   @ApiOperation({ summary: 'Verify emailed magic link (redirects with one-time code)' })
@@ -322,8 +324,14 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Google OAuth callback — redirects with one-time code' })
   async googleCallback(@Req() req: any, @Res() res: Response) {
-    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    if (req.user?.oauthError) {
+      res.redirect(
+        `${frontendUrl}/login?oauth=0&reason=${encodeURIComponent(req.user.oauthError)}`,
+      );
+      return;
+    }
+    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     // Never put access/refresh tokens in the URL — exchange via POST /auth/oauth/exchange
     res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
   }
@@ -342,8 +350,14 @@ export class AuthController {
   @UseGuards(AuthGuard('github'))
   @ApiOperation({ summary: 'GitHub OAuth callback — redirects with one-time code' })
   async githubCallback(@Req() req: any, @Res() res: Response) {
-    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    if (req.user?.oauthError) {
+      res.redirect(
+        `${frontendUrl}/login?oauth=0&reason=${encodeURIComponent(req.user.oauthError)}`,
+      );
+      return;
+    }
+    const code = await this.authService.createOAuthExchangeCode(req.user.id);
     res.redirect(`${frontendUrl}/auth/oauth-success?code=${encodeURIComponent(code)}`);
   }
 
