@@ -10,6 +10,11 @@ import { AuditService } from '../audit/audit.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import { PasswordService } from '../auth/password.service';
 import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
+import {
+  assertActorOutranksTarget,
+  getRoleRank,
+  permissionsSubsetOf,
+} from '../common/role-hierarchy';
 
 @Injectable()
 export class UserService {
@@ -27,6 +32,38 @@ export class UserService {
     void this.webhooks.dispatch(event, payload).catch((err) => {
       this.logger.warn(`Webhook dispatch failed for ${event}: ${err?.message}`);
     });
+  }
+
+  /**
+   * Load actor + target and ensure the actor strictly outranks the target's
+   * current role before any privileged mutation (#63).
+   */
+  private async assertCanManageUser(
+    adminId: string,
+    targetUserId: string,
+    action: string,
+  ) {
+    if (adminId === targetUserId) {
+      throw new ForbiddenException(`Cannot ${action} your own account`);
+    }
+
+    const [admin, target] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: adminId },
+        include: { role: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        include: { role: true },
+      }),
+    ]);
+
+    if (!admin?.role) throw new ForbiddenException('Admin not found');
+    if (!target || target.deletedAt) throw new NotFoundException('User not found');
+    if (!target.role) throw new ForbiddenException('Target user has no role');
+
+    assertActorOutranksTarget(admin.role.name, target.role.name, action);
+    return { admin, target };
   }
 
   async findById(id: string) {
@@ -86,34 +123,74 @@ export class UserService {
   }
 
   async assignRole(userId: string, roleId: string, adminId: string, req: any) {
-    const [role, admin] = await Promise.all([
-      this.prisma.role.findUnique({ where: { id: roleId } }),
-      this.prisma.user.findUnique({
-        where: { id: adminId },
-        include: { role: true },
-      }),
-    ]);
-    if (!role) throw new NotFoundException('Role not found');
-    if (!admin?.role) throw new ForbiddenException('Admin not found');
+    const { admin, target } = await this.assertCanManageUser(
+      adminId,
+      userId,
+      'change the role of',
+    );
 
-    // Prevent privilege escalation: cannot assign a role at or above your own (#10)
-    const RANK: Record<string, number> = {
-      guest: 0,
-      user: 1,
-      moderator: 2,
-      admin: 3,
-      superadmin: 4,
-    };
-    const actorRank = RANK[admin.role.name] ?? -1;
-    const targetRank = RANK[role.name] ?? -1;
-    if (targetRank < 0 || actorRank < 0) {
+    const role = await this.prisma.role.findUnique({
+      where: { id: roleId },
+      include: {
+        permissions: true,
+        parent: { include: { permissions: true, parent: { include: { permissions: true } } } },
+      },
+    });
+    if (!role) throw new NotFoundException('Role not found');
+
+    const actorRank = getRoleRank(admin.role.name);
+    const newRoleRank = getRoleRank(role.name);
+
+    if (actorRank < 0) {
       throw new ForbiddenException('Unknown role hierarchy');
     }
-    if (targetRank >= actorRank) {
-      throw new ForbiddenException(
-        'Cannot assign a role at or above your own privilege level',
-      );
+
+    // Named hierarchy: cannot assign a role at or above your own (#10)
+    if (newRoleRank >= 0) {
+      if (newRoleRank >= actorRank) {
+        throw new ForbiddenException(
+          'Cannot assign a role at or above your own privilege level',
+        );
+      }
+    } else {
+      // Custom role: admin+ only, and role's effective perms must be ⊆ actor's (#63 review)
+      if (actorRank < getRoleRank('admin')) {
+        throw new ForbiddenException('Cannot assign custom roles');
+      }
+      const actorFull = await this.prisma.user.findUnique({
+        where: { id: adminId },
+        include: {
+          role: {
+            include: {
+              permissions: true,
+              parent: { include: { permissions: true } },
+            },
+          },
+        },
+      });
+      const collect = (
+        r: any,
+        seen = new Set<string>(),
+      ): Array<{ action: string; resource: string }> => {
+        if (!r || seen.has(r.id)) return [];
+        seen.add(r.id);
+        const out = (r.permissions ?? []).map((p: any) => ({
+          action: p.action,
+          resource: p.resource,
+        }));
+        if (r.parent) out.push(...collect(r.parent, seen));
+        return out;
+      };
+      const actorPerms = collect(actorFull?.role);
+      const rolePerms = collect(role);
+      if (!permissionsSubsetOf(rolePerms, actorPerms)) {
+        throw new ForbiddenException(
+          'Cannot assign a role whose permissions exceed your effective set',
+        );
+      }
     }
+
+    void target;
 
     await this.prisma.user.update({ where: { id: userId }, data: { roleId } });
 
@@ -138,6 +215,8 @@ export class UserService {
   }
 
   async lockUser(userId: string, reason: string, adminId: string, req: any) {
+    await this.assertCanManageUser(adminId, userId, 'lock');
+
     await this.prisma.user.update({
       where: { id: userId },
       data: { isLocked: true, lockedAt: new Date(), lockReason: reason },
@@ -165,6 +244,8 @@ export class UserService {
   }
 
   async unlockUser(userId: string, adminId: string, req: any) {
+    await this.assertCanManageUser(adminId, userId, 'unlock');
+
     await this.prisma.user.update({
       where: { id: userId },
       data: { isLocked: false, lockedAt: null, lockReason: null, failedLoginAttempts: 0 },
@@ -185,8 +266,7 @@ export class UserService {
   }
 
   async softDelete(userId: string, adminId: string, req: any) {
-    // Prevent deleting self
-    if (userId === adminId) throw new ForbiddenException('Cannot delete your own account');
+    await this.assertCanManageUser(adminId, userId, 'delete');
 
     await this.prisma.user.update({
       where: { id: userId },

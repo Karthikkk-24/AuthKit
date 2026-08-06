@@ -94,9 +94,14 @@ export class RbacController {
 
   // ─── PERMISSIONS ───────────────────────────────────────────────────
   @Post('permissions')
-  @ApiOperation({ summary: 'Create a permission' })
-  createPermission(@Body() body: CreatePermissionDto) {
-    return this.rbacService.createPermission(body);
+  @RequirePermissions({ action: 'update', resource: 'permissions' })
+  @ApiOperation({ summary: 'Create a permission on a role' })
+  createPermission(
+    @Body() body: CreatePermissionDto,
+    @CurrentUser() admin: any,
+    @Req() req: Request,
+  ) {
+    return this.rbacService.createPermission(body, admin.id, req);
   }
 
   @Get('permissions')

@@ -6,20 +6,13 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ROLE_RANK } from '../role-hierarchy';
 
 /**
  * Role hierarchy (higher includes lower). A user with `admin` satisfies
  * `@Roles('user')` and `@Roles('moderator')` as well as `@Roles('admin')` (#39).
  * PermissionsGuard still owns fine-grained permission inheritance via parentId.
  */
-const ROLE_RANK: Record<string, number> = {
-  guest: 0,
-  user: 1,
-  moderator: 2,
-  admin: 3,
-  superadmin: 4,
-};
-
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}

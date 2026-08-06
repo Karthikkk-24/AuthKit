@@ -237,6 +237,14 @@ export class ConfigLoaderService {
     return this.config;
   }
 
+  /**
+   * Admin-facing config snapshot with credential fields redacted (#62).
+   * Live secrets from env interpolation must never reach the admin UI or logs.
+   */
+  getAllRedacted(): AuthKitConfig {
+    return redactSecrets(structuredClone(this.config)) as AuthKitConfig;
+  }
+
   isFeatureEnabled(feature: keyof AuthKitConfig['features']): boolean {
     return this.config.features[feature] ?? false;
   }
@@ -245,4 +253,41 @@ export class ConfigLoaderService {
     const s = this.config.auth.strategies[strategy] as any;
     return s?.enabled ?? false;
   }
+}
+
+/** Replace secret-shaped leaf values so GET/PATCH responses never leak credentials. */
+export function redactSecrets(obj: any, path: string[] = []): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map((v, i) => redactSecrets(v, [...path, String(i)]));
+  if (typeof obj !== 'object') return obj;
+
+  const out: any = {};
+  for (const key of Object.keys(obj)) {
+    const nextPath = [...path, key];
+    const pathKey = nextPath.join('.');
+    // Also redact connection URLs that often embed credentials (#62 review).
+    const isSecretUrl =
+      key === 'url' &&
+      (pathKey === 'database.url' ||
+        pathKey === 'redis.url' ||
+        path.includes('database') ||
+        path.includes('redis'));
+
+    if (SECRET_KEY_RE.test(key) || isSecretUrl) {
+      const val = obj[key];
+      if (typeof val === 'string' && val.length > 0) {
+        out[key] = '[REDACTED]';
+      } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+        // e.g. auth.password policy object — recurse but don't blank the object
+        out[key] = redactSecrets(val, nextPath);
+      } else {
+        out[key] = val;
+      }
+    } else if (obj[key] && typeof obj[key] === 'object') {
+      out[key] = redactSecrets(obj[key], nextPath);
+    } else {
+      out[key] = obj[key];
+    }
+  }
+  return out;
 }
