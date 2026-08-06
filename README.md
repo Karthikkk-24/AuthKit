@@ -138,7 +138,7 @@ Email and HaveIBeenPwned checks stay **off by default** so a fresh clone boots w
 **MailHog (catch-all SMTP):**
 ```bash
 docker compose --profile dev up mailhog -d
-# In .env: SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USER= SMTP_PASS=
+# In .env: SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USER= SMTP_PASSWORD=
 # In authkit.config.json: "email": { "enabled": true, "provider": "smtp", ... }
 # Catcher UI: http://localhost:8025
 ```

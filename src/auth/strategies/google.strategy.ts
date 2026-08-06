@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigLoaderService } from '../../config/config-loader.service';
@@ -39,7 +39,16 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       });
       done(null, user);
     } catch (err) {
-      done(err, false);
+      // Surface policy failures to the callback as a stable redirect reason (#88)
+      if (err instanceof ForbiddenException) {
+        done(null, { oauthError: 'registration_disabled' });
+        return;
+      }
+      if (err instanceof ConflictException) {
+        done(null, { oauthError: 'account_exists' });
+        return;
+      }
+      done(err as Error, false);
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-github2';
 import { ConfigLoaderService } from '../../config/config-loader.service';
@@ -23,7 +23,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     accessToken: string,
     refreshToken: string,
     profile: any,
-    done: Function,
+    done: (err: any, user?: any) => void,
   ): Promise<any> {
     const email =
       profile.emails?.find((e: any) => e.primary)?.value ??
@@ -39,7 +39,16 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
       });
       done(null, user);
     } catch (err) {
-      done(err, null);
+      // Surface policy failures to the callback as a stable redirect reason (#88)
+      if (err instanceof ForbiddenException) {
+        done(null, { oauthError: 'registration_disabled' });
+        return;
+      }
+      if (err instanceof ConflictException) {
+        done(null, { oauthError: 'account_exists' });
+        return;
+      }
+      done(err, false);
     }
   }
 }

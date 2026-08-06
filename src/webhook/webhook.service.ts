@@ -78,6 +78,11 @@ export class WebhookService {
       return;
     }
 
+    const whCfg = this.config.get<any>('webhooks') ?? {};
+    const timeout = Number(whCfg.timeout) > 0 ? Number(whCfg.timeout) : 10_000;
+    const maxAttempts =
+      Number(whCfg.retries) >= 0 ? Number(whCfg.retries) + 1 : 1;
+
     const body = JSON.stringify({
       event,
       timestamp: new Date().toISOString(),
@@ -86,48 +91,61 @@ export class WebhookService {
 
     const signature = this.sign(endpoint.secret, body);
 
-    try {
-      const response = await axios.post(endpoint.url, body, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-AuthKit-Event': event,
-          'X-AuthKit-Signature': signature,
-          'X-AuthKit-Timestamp': Date.now().toString(),
-        },
-        timeout: 10_000,
-        maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 300,
-      });
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await axios.post(endpoint.url, body, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-AuthKit-Event': event,
+            'X-AuthKit-Signature': signature,
+            'X-AuthKit-Timestamp': Date.now().toString(),
+          },
+          timeout,
+          maxRedirects: 0,
+          validateStatus: (s) => s >= 200 && s < 300,
+        });
 
-      await this.prisma.webhookDelivery.create({
-        data: {
-          webhookId: endpoint.id,
-          event,
-          payload,
-          statusCode: response.status,
-          success: true,
-        },
-      });
+        await this.prisma.webhookDelivery.create({
+          data: {
+            webhookId: endpoint.id,
+            event,
+            payload,
+            statusCode: response.status,
+            success: true,
+            attempts: attempt,
+          },
+        });
 
-      this.logger.log(`Webhook delivered: ${event} → ${endpoint.url}`);
-    } catch (err: any) {
-      this.logger.warn(
-        `Webhook failed: ${event} → ${endpoint.url}: ${err?.message}`,
-      );
-
-      await this.prisma.webhookDelivery.create({
-        data: {
-          webhookId: endpoint.id,
-          event,
-          payload,
-          statusCode: err.response?.status,
-          responseBody: err.response?.data
-            ? JSON.stringify(err.response.data)
-            : null,
-          success: false,
-        },
-      });
+        this.logger.log(
+          `Webhook delivered: ${event} → ${endpoint.url} (attempt ${attempt})`,
+        );
+        return;
+      } catch (err: any) {
+        lastErr = err;
+        this.logger.warn(
+          `Webhook attempt ${attempt}/${maxAttempts} failed: ${event} → ${endpoint.url}: ${err?.message}`,
+        );
+        if (attempt < maxAttempts) {
+          // Exponential backoff: 500ms, 1s, 2s, …
+          await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+        }
+      }
     }
+
+    await this.prisma.webhookDelivery.create({
+      data: {
+        webhookId: endpoint.id,
+        event,
+        payload,
+        statusCode: lastErr?.response?.status,
+        responseBody: lastErr?.response?.data
+          ? JSON.stringify(lastErr.response.data).slice(0, 4_000)
+          : null,
+        success: false,
+        attempts: maxAttempts,
+      },
+    });
   }
 
   private sign(secret: string, body: string): string {
@@ -247,7 +265,7 @@ export class WebhookService {
   }
 
   async listEndpoints(userId: string) {
-    return this.prisma.webhook.findMany({
+    const endpoints = await this.prisma.webhook.findMany({
       where: { userId },
       select: {
         id: true,
@@ -255,7 +273,22 @@ export class WebhookService {
         events: true,
         isActive: true,
         createdAt: true,
+        deliveries: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: { success: true, createdAt: true },
+        },
       },
+    });
+
+    return endpoints.map(({ deliveries, ...ep }) => {
+      const failureCount = deliveries.filter((d) => !d.success).length;
+      const lastSuccess = deliveries.find((d) => d.success);
+      return {
+        ...ep,
+        failureCount,
+        lastDeliveredAt: lastSuccess?.createdAt ?? null,
+      };
     });
   }
 

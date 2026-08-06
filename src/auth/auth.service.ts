@@ -57,7 +57,7 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────────────────
   async register(dto: RegisterDto, req: any) {
     const regConfig = this.config.get<any>('auth').registration;
-    if (!regConfig.enabled) {
+    if (!regConfig.enabled || !this.config.isFeatureEnabled('registration')) {
       throw new ForbiddenException('Registration is currently disabled');
     }
 
@@ -113,8 +113,8 @@ export class AuthService {
       include: { role: true },
     });
 
-    // Send email verification
-    if (regConfig.requireEmailVerification && this.config.isFeatureEnabled('emailVerification')) {
+    // Send email verification (#93 — same predicate as login enforcement)
+    if (this.isEmailVerificationEnforced()) {
       await this.sendEmailVerification(user.id);
     }
 
@@ -323,16 +323,27 @@ export class AuthService {
     }
   }
 
-  async login(user: any, dto: LoginDto, req: any) {
-    const authConfig = this.config.get<any>('auth');
-    const regConfig = authConfig.registration;
+  /**
+   * Email verification is enforced only when both the auth requirement and the
+   * feature flag are on (#93). Toggling features.emailVerification off must not
+   * lock users out while requireEmailVerification stays true.
+   */
+  private isEmailVerificationEnforced(): boolean {
+    const reg = this.config.get<any>('auth')?.registration ?? {};
+    return Boolean(reg.requireEmailVerification) && this.config.isFeatureEnabled('emailVerification');
+  }
 
-    // Email verification check
-    if (regConfig.requireEmailVerification && !user.emailVerifiedAt) {
+  /** Shared gate for password / magic-link session mint (#89, #93). */
+  private assertEmailVerifiedForLogin(user: { emailVerifiedAt?: Date | null }) {
+    if (this.isEmailVerificationEnforced() && !user.emailVerifiedAt) {
       throw new ForbiddenException(
         'Please verify your email before logging in',
       );
     }
+  }
+
+  async login(user: any, dto: LoginDto, req: any) {
+    this.assertEmailVerifiedForLogin(user);
 
     // Shared MFA gate (#23, #60). Password login re-submits credentials with
     // mfaCode, so a bare `{ requiresMfa, userId }` challenge is enough.
@@ -499,7 +510,11 @@ export class AuthService {
   async createTokens(
     user: any,
     req: any,
-    opts: { auditAction?: 'auth.login' | 'auth.refresh' | null } = {
+    opts: {
+      auditAction?: 'auth.login' | 'auth.refresh' | null;
+      /** Preserve refresh-token family across rotation (#67). */
+      familyId?: string;
+    } = {
       auditAction: 'auth.login',
     },
   ) {
@@ -538,11 +553,13 @@ export class AuthService {
       .digest('hex');
 
     const refreshExpiry = this.parseExpiry(jwtConfig.refreshTokenExpiry);
+    const familyId = opts.familyId || crypto.randomUUID();
 
     const session = await this.prisma.session.create({
       data: {
         userId: user.id,
         refreshTokenHash,
+        familyId,
         ip: req?.ip,
         userAgent: ua,
         deviceName: parsed.device.model || 'Unknown',
@@ -627,8 +644,9 @@ export class AuthService {
       .update(refreshToken)
       .digest('hex');
 
+    // Look up by hash including revoked rows so we can detect reuse (#67)
     const session = await this.prisma.session.findFirst({
-      where: { refreshTokenHash: tokenHash, isRevoked: false },
+      where: { refreshTokenHash: tokenHash },
       include: { user: { include: { role: { include: { permissions: true } } } } },
     });
 
@@ -644,6 +662,26 @@ export class AuthService {
         });
       }
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // Reuse of a rotated (revoked) refresh token → kill the whole family
+    if (session.isRevoked) {
+      await this.prisma.session.updateMany({
+        where: { familyId: session.familyId, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      });
+      const auditCfg = this.config.get<any>('audit') ?? {};
+      if (auditCfg.logTokenRefresh) {
+        await this.audit.log({
+          action: 'auth.refresh',
+          userId: session.userId,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          success: false,
+          metadata: { reason: 'refresh_token_reuse' },
+        });
+      }
+      throw new UnauthorizedException('Refresh token reuse detected');
     }
 
     if (session.expiresAt < new Date()) {
@@ -669,13 +707,24 @@ export class AuthService {
       throw new UnauthorizedException('User account is not accessible');
     }
 
-    // Rotate: revoke old session, create new tokens
-    await this.prisma.session.update({
-      where: { id: session.id },
+    // Atomic claim: only one concurrent refresh may rotate this session
+    const claimed = await this.prisma.session.updateMany({
+      where: { id: session.id, isRevoked: false, refreshTokenHash: tokenHash },
       data: { isRevoked: true, revokedAt: new Date() },
     });
 
-    return this.createTokens(session.user, req, { auditAction: 'auth.refresh' });
+    if (claimed.count === 0) {
+      await this.prisma.session.updateMany({
+        where: { familyId: session.familyId, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+
+    return this.createTokens(session.user, req, {
+      auditAction: 'auth.refresh',
+      familyId: session.familyId,
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -735,6 +784,11 @@ export class AuthService {
   // PASSWORD RESET
   // ─────────────────────────────────────────────────────────────────────
   async forgotPassword(email: string, req: any) {
+    // Controller also gates features.passwordReset; keep service consistent (#90)
+    if (!this.config.isFeatureEnabled('passwordReset')) {
+      return { message: 'If that email exists, a reset link has been sent' };
+    }
+
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     // Always return success to prevent user enumeration
@@ -896,10 +950,26 @@ export class AuthService {
       }
     }
 
+    // Closed registration must block OAuth provisioning of new users (#88).
+    // Existing linked OAuth users already returned above.
+    const regConfig = this.config.get<any>('auth')?.registration ?? {};
+    if (
+      regConfig.enabled === false ||
+      !this.config.isFeatureEnabled('registration')
+    ) {
+      throw new ForbiddenException(
+        'Registration is currently disabled. Contact an administrator to create an account.',
+      );
+    }
+
     // Create new OAuth-only user
     const defaultRole = await this.prisma.role.findUnique({
-      where: { name: 'user' },
+      where: { name: regConfig.defaultRole || 'user' },
     });
+
+    if (!defaultRole) {
+      throw new BadRequestException('Default role not configured');
+    }
 
     user = await this.prisma.user.create({
       data: {
@@ -907,7 +977,7 @@ export class AuthService {
         name: profile.name,
         avatarUrl: profile.avatarUrl,
         emailVerifiedAt: new Date(), // OAuth emails are pre-verified by the provider
-        roleId: defaultRole!.id,
+        roleId: defaultRole.id,
         [providerField]: profile.providerId,
       },
       include: { role: { include: { permissions: true } } },
@@ -1094,12 +1164,29 @@ export class AuthService {
     return true;
   }
 
-  async disableMfa(userId: string, password: string) {
+  async disableMfa(
+    userId: string,
+    password?: string,
+    mfaCode?: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.passwordHash) throw new BadRequestException('Cannot verify identity');
+    if (!user) throw new NotFoundException('User not found');
 
-    const valid = await this.passwordService.verify(user.passwordHash, password);
-    if (!valid) throw new UnauthorizedException('Incorrect password');
+    if (user.passwordHash) {
+      if (!password) {
+        throw new BadRequestException('Password confirmation is required');
+      }
+      const valid = await this.passwordService.verify(user.passwordHash, password);
+      if (!valid) throw new UnauthorizedException('Incorrect password');
+    } else {
+      // OAuth-only / passwordless: step-up with current MFA factor (#92)
+      if (!mfaCode) {
+        throw new BadRequestException(
+          'MFA code (TOTP, email OTP, or backup code) is required to disable MFA on passwordless accounts',
+        );
+      }
+      await this.verifyMfaWithFallback(userId, mfaCode);
+    }
 
     await this.prisma.$transaction([
       this.prisma.mfaCredential.deleteMany({ where: { userId } }),
@@ -1190,7 +1277,7 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────────────────
   async sendMagicLink(email: string, req: any) {
     if (
-      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isStrategyEnabled('magicLink') ||
       !this.config.isFeatureEnabled('magicLink')
     ) {
       throw new BadRequestException('Magic link authentication is disabled');
@@ -1223,7 +1310,7 @@ export class AuthService {
    */
   async consumeMagicLinkToken(token: string) {
     if (
-      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isStrategyEnabled('magicLink') ||
       !this.config.isFeatureEnabled('magicLink')
     ) {
       throw new BadRequestException('Magic link authentication is disabled');
@@ -1247,6 +1334,8 @@ export class AuthService {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
 
+    this.assertEmailVerifiedForLogin(record.user);
+
     await this.prisma.emailVerification.update({
       where: { id: record.id },
       data: { usedAt: new Date() },
@@ -1259,6 +1348,8 @@ export class AuthService {
     // Peek first so a wrong mfaCode does not burn the magic-link token when the
     // client attempted a one-shot verify+MFA (#60 review).
     const user = await this.peekMagicLinkUser(token);
+
+    this.assertEmailVerifiedForLogin(user);
 
     if (mfaCode) {
       await this.verifyMfaWithFallback(user.id, mfaCode);
@@ -1284,7 +1375,7 @@ export class AuthService {
   /** Load magic-link user without marking the token used. */
   private async peekMagicLinkUser(token: string) {
     if (
-      !this.config.isStrategyEnabled('magicLink') &&
+      !this.config.isStrategyEnabled('magicLink') ||
       !this.config.isFeatureEnabled('magicLink')
     ) {
       throw new BadRequestException('Magic link authentication is disabled');
@@ -1306,6 +1397,8 @@ export class AuthService {
     if (record.user.deletedAt || record.user.isLocked) {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
+
+    this.assertEmailVerifiedForLogin(record.user);
 
     return record.user;
   }

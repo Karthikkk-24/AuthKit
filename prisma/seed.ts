@@ -34,6 +34,7 @@ const PERMISSIONS: Array<{ resource: string; action: string; description?: strin
   { resource: 'roles',       action: '*',      description: 'Full role access' },
   { resource: 'permissions', action: 'create', description: 'Create permissions' },
   { resource: 'permissions', action: 'read',   description: 'View permissions' },
+  { resource: 'permissions', action: 'update', description: 'Update permission overrides' },
   { resource: 'permissions', action: 'delete', description: 'Delete permissions' },
   { resource: 'permissions', action: '*',      description: 'Full permission access' },
   // Audit
@@ -68,7 +69,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   superadmin: ['*:*'],  // resolved by wildcard engine — grant all
   admin: [
     'users:*', 'sessions:*', 'roles:read', 'roles:update',
-    'permissions:read', 'audit:*', 'webhooks:*', 'apikeys:*',
+    'permissions:read', 'permissions:create', 'permissions:update',
+    'audit:*', 'webhooks:*', 'apikeys:*',
     'mfa:*', 'metrics:read', 'settings:*',
   ],
   moderator: [

@@ -68,6 +68,24 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
+    // API key scopes intersect RBAC (#66). Empty scopes = no extra restriction
+    // (legacy keys). Non-empty scopes must also cover every required permission.
+    if (user.isApiKeyAuth) {
+      const scopes: string[] = Array.isArray(user.apiKeyScopes)
+        ? user.apiKeyScopes
+        : [];
+      if (scopes.length > 0) {
+        const missing = required.filter(
+          (req) => !this.isScopeGranted(scopes, req),
+        );
+        if (missing.length > 0) {
+          throw new ForbiddenException(
+            `API key scopes do not allow: ${missing.map((p) => `${p.action}:${p.resource}`).join(', ')}`,
+          );
+        }
+      }
+    }
+
     return true;
   }
 
@@ -105,5 +123,48 @@ export class PermissionsGuard implements CanActivate {
         // Full wildcard (superadmin)
         (p.action === '*' && p.resource === '*'),
     );
+  }
+
+  /**
+   * Scope strings use `resource:action` (same as seed grants / admin UI),
+   * plus shorthand `read` / `write` / `admin` and `resource:manage`.
+   */
+  private isScopeGranted(
+    scopes: string[],
+    req: { action: string; resource: string },
+  ): boolean {
+    const writeActions = new Set([
+      'create',
+      'update',
+      'delete',
+      'revoke',
+      'lock',
+      'export',
+      'assign',
+    ]);
+
+    for (const raw of scopes) {
+      const scope = (raw || '').trim().toLowerCase();
+      if (!scope) continue;
+
+      if (scope === 'admin' || scope === '*:*' || scope === '*') return true;
+      if (scope === 'read' && req.action === 'read') return true;
+      if (scope === 'write' && writeActions.has(req.action)) return true;
+
+      const colon = scope.indexOf(':');
+      if (colon <= 0) continue;
+      const resource = scope.slice(0, colon);
+      const action = scope.slice(colon + 1);
+
+      if (action === 'manage' || action === '*') {
+        if (resource === '*' || resource === req.resource) return true;
+        continue;
+      }
+      if (resource === '*' && action === req.action) return true;
+      if (resource === req.resource && action === req.action) return true;
+      if (resource === req.resource && action === '*') return true;
+    }
+
+    return false;
   }
 }

@@ -56,9 +56,25 @@ AuthKit is an authentication & authorization platform. The highest-value assets 
 
 - Argon2id password hashing; optional HIBP pwned-password check
 - JWT blacklist (Redis) + session revoke on lock/logout/password change
+- Refresh-token rotation with family reuse detection
 - SSRF protections on webhook URLs; owner-scoped webhook mutations
 - Config edits whitelisted and deep-merged to preserve `${ENV}` secrets
 - Audit logging for auth successes/failures when flags are enabled
+- API keys accepted only via `X-API-Key` / `Authorization: ApiKey` (not query strings)
+- API key scopes intersect RBAC permissions when scopes are non-empty
+
+### Prometheus metrics (#68)
+
+`GET /api/v1/metrics/prometheus` is **public in non-production** for local scrapers.
+
+In **production** it returns 401 unless you explicitly opt in:
+
+| Mode | How |
+|---|---|
+| Network ACL scraper (no JWT) | Set `PROMETHEUS_PUBLIC=true` and restrict the path at the reverse proxy / firewall |
+| Authenticated scrape | `GET /api/v1/metrics/prometheus/secure` with an admin/superadmin Bearer token |
+
+Do not expose process metrics to the public internet.
 
 ### Out of scope / known non-goals
 
@@ -73,3 +89,4 @@ AuthKit is an authentication & authorization platform. The highest-value assets 
 3. Enable email verification and review `authkit.config.json` feature flags
 4. Restrict CORS origins; keep Redis authenticated
 5. Rotate webhook secrets periodically
+6. Keep Prometheus private (`PROMETHEUS_PUBLIC` unset in production unless firewalled)
