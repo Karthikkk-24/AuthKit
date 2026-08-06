@@ -31,6 +31,18 @@ describe('role-hierarchy helpers', () => {
     ).toThrow(ForbiddenException);
   });
 
+  it('assertActorOutranksTarget allows admin to manage custom-role users', () => {
+    expect(() =>
+      assertActorOutranksTarget('admin', 'editor', 'lock'),
+    ).not.toThrow();
+  });
+
+  it('assertActorOutranksTarget blocks moderator from managing custom-role users', () => {
+    expect(() =>
+      assertActorOutranksTarget('moderator', 'editor', 'lock'),
+    ).toThrow(ForbiddenException);
+  });
+
   it('permissionCovers handles wildcards', () => {
     expect(
       permissionCovers([{ action: '*', resource: '*' }], {

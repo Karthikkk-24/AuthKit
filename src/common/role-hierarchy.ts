@@ -25,6 +25,9 @@ export function outranks(actorRank: number, targetRank: number): boolean {
 /**
  * Throws if the actor cannot manage the target role (must strictly outrank).
  * Used for lock/unlock/delete/role-assign against another user (#63).
+ *
+ * Custom (unknown-rank) roles are manageable by admin+; named hierarchy
+ * roles still require a strict outrank.
  */
 export function assertActorOutranksTarget(
   actorRoleName: string,
@@ -33,9 +36,21 @@ export function assertActorOutranksTarget(
 ): void {
   const actorRank = getRoleRank(actorRoleName);
   const targetRank = getRoleRank(targetRoleName);
-  if (actorRank < 0 || targetRank < 0) {
+
+  if (actorRank < 0) {
     throw new ForbiddenException('Unknown role hierarchy');
   }
+
+  // Custom / unknown target role names: only admin+ may manage them.
+  if (targetRank < 0) {
+    if (actorRank < ROLE_RANK.admin) {
+      throw new ForbiddenException(
+        `Cannot ${action}: insufficient privilege for custom-role users`,
+      );
+    }
+    return;
+  }
+
   if (!outranks(actorRank, targetRank)) {
     throw new ForbiddenException(
       `Cannot ${action}: target role "${targetRoleName}" is at or above your privilege level`,

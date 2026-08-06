@@ -13,6 +13,7 @@ import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 import {
   assertActorOutranksTarget,
   getRoleRank,
+  permissionsSubsetOf,
 } from '../common/role-hierarchy';
 
 @Injectable()
@@ -128,22 +129,67 @@ export class UserService {
       'change the role of',
     );
 
-    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+    const role = await this.prisma.role.findUnique({
+      where: { id: roleId },
+      include: {
+        permissions: true,
+        parent: { include: { permissions: true, parent: { include: { permissions: true } } } },
+      },
+    });
     if (!role) throw new NotFoundException('Role not found');
 
-    // Cannot assign a role at or above your own (#10)
     const actorRank = getRoleRank(admin.role.name);
     const newRoleRank = getRoleRank(role.name);
-    if (actorRank < 0 || newRoleRank < 0) {
+
+    if (actorRank < 0) {
       throw new ForbiddenException('Unknown role hierarchy');
     }
-    if (newRoleRank >= actorRank) {
-      throw new ForbiddenException(
-        'Cannot assign a role at or above your own privilege level',
-      );
+
+    // Named hierarchy: cannot assign a role at or above your own (#10)
+    if (newRoleRank >= 0) {
+      if (newRoleRank >= actorRank) {
+        throw new ForbiddenException(
+          'Cannot assign a role at or above your own privilege level',
+        );
+      }
+    } else {
+      // Custom role: admin+ only, and role's effective perms must be ⊆ actor's (#63 review)
+      if (actorRank < getRoleRank('admin')) {
+        throw new ForbiddenException('Cannot assign custom roles');
+      }
+      const actorFull = await this.prisma.user.findUnique({
+        where: { id: adminId },
+        include: {
+          role: {
+            include: {
+              permissions: true,
+              parent: { include: { permissions: true } },
+            },
+          },
+        },
+      });
+      const collect = (
+        r: any,
+        seen = new Set<string>(),
+      ): Array<{ action: string; resource: string }> => {
+        if (!r || seen.has(r.id)) return [];
+        seen.add(r.id);
+        const out = (r.permissions ?? []).map((p: any) => ({
+          action: p.action,
+          resource: p.resource,
+        }));
+        if (r.parent) out.push(...collect(r.parent, seen));
+        return out;
+      };
+      const actorPerms = collect(actorFull?.role);
+      const rolePerms = collect(role);
+      if (!permissionsSubsetOf(rolePerms, actorPerms)) {
+        throw new ForbiddenException(
+          'Cannot assign a role whose permissions exceed your effective set',
+        );
+      }
     }
 
-    // Target's current role already checked via assertCanManageUser (#63)
     void target;
 
     await this.prisma.user.update({ where: { id: userId }, data: { roleId } });

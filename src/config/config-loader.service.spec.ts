@@ -26,6 +26,18 @@ describe('redactSecrets (#62)', () => {
     expect(out.ui.theme).toBe('dark');
   });
 
+  it('redacts database.url and redis.url connection strings', () => {
+    const input = {
+      database: { orm: 'prisma', url: 'postgresql://user:pass@localhost/db' },
+      redis: { url: 'redis://:secret@localhost:6379', prefix: 'authkit:' },
+    };
+    const out = redactSecrets(input);
+    expect(out.database.url).toBe('[REDACTED]');
+    expect(out.database.orm).toBe('prisma');
+    expect(out.redis.url).toBe('[REDACTED]');
+    expect(out.redis.prefix).toBe('authkit:');
+  });
+
   it('does not mutate the original object', () => {
     const input = { smtp: { password: 'live' } };
     redactSecrets(input);

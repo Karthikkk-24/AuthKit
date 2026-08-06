@@ -259,18 +259,53 @@ describe('RbacService P1 guards (#64, #65, #86)', () => {
       expect(prisma.role.update).toHaveBeenCalled();
     });
 
-    it('blocks non-superadmin from changing system role parentId', async () => {
+    it('allows superadmin to update system role permissions', async () => {
+      const { service, prisma } = makeService();
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'r-sa',
+        name: 'superadmin',
+        isSystem: true,
+      });
+      prisma.user.findUnique.mockResolvedValue(superadminActor);
+
+      await service.assignPermissionsToRole(
+        'r-sa',
+        [{ action: '*', resource: '*' }],
+        'sa-1',
+        {},
+      );
+      expect(prisma.permission.createMany).toHaveBeenCalled();
+    });
+
+    it('blocks renaming a custom role to a reserved hierarchy name', async () => {
       const { service, prisma } = makeService();
       prisma.user.findUnique.mockResolvedValue(adminActor);
       prisma.role.findUnique.mockResolvedValue({
-        id: 'r-user',
-        name: 'user',
-        isSystem: true,
+        id: 'r-custom',
+        name: 'editor',
+        isSystem: false,
       });
 
-      // assertCanMutateRole already blocks system roles for non-superadmin
       await expect(
-        service.updateRole('r-user', { parentId: 'r-admin' }, 'admin-1', {}),
+        service.updateRole('r-custom', { name: 'superadmin' }, 'admin-1', {}),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('blocks createPermission onto system roles for admin', async () => {
+      const { service, prisma } = makeService();
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'r-sa',
+        name: 'superadmin',
+        isSystem: true,
+      });
+      prisma.user.findUnique.mockResolvedValue(adminActor);
+
+      await expect(
+        service.createPermission(
+          { roleId: 'r-sa', action: 'read', resource: 'users' },
+          'admin-1',
+          {},
+        ),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });

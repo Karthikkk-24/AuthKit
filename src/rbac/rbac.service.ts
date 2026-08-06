@@ -84,7 +84,8 @@ export class RbacService {
 
   /**
    * Actor may only mutate roles they strictly outrank. System roles are
-   * immutable for non-superadmins (#64, #86).
+   * immutable for non-superadmins (#64, #86). Superadmin may mutate any
+   * system role including their own.
    */
   private assertCanMutateRole(
     actorRoleName: string,
@@ -95,6 +96,11 @@ export class RbacService {
       throw new ForbiddenException(
         `Only superadmin can ${action} system role "${targetRole.name}"`,
       );
+    }
+
+    // Superadmin may manage all system roles (including peer "superadmin") (#64 review)
+    if (actorRoleName === 'superadmin' && targetRole.isSystem) {
+      return;
     }
 
     const targetRank = getRoleRank(targetRole.name);
@@ -194,6 +200,13 @@ export class RbacService {
     if (role.isSystem && data.name) {
       // System roles cannot be renamed
       delete data.name;
+    }
+
+    // Block renaming a custom role onto a reserved hierarchy name (#64 review)
+    if (data.name && getRoleRank(data.name) >= 0) {
+      throw new ForbiddenException(
+        `Role name "${data.name}" is reserved by the system hierarchy`,
+      );
     }
 
     // parentId changes (#86): block privilege inheritance escalation
@@ -341,13 +354,42 @@ export class RbacService {
   }
 
   // ─── PERMISSIONS ───────────────────────────────────────────────────
-  async createPermission(dto: CreatePermissionDto) {
+  async createPermission(dto: CreatePermissionDto, adminId: string, req?: any) {
+    const role = await this.prisma.role.findUnique({ where: { id: dto.roleId } });
+    if (!role) throw new NotFoundException('Role not found');
+
+    const { admin, perms: actorPerms } = await this.getActorEffectivePermissions(adminId);
+    this.assertCanMutateRole(admin.role.name, role, 'create permissions on');
+
+    if (
+      !permissionsSubsetOf(
+        [{ action: dto.action, resource: dto.resource }],
+        actorPerms,
+      )
+    ) {
+      throw new ForbiddenException(
+        'Cannot create a permission beyond your own effective permission set',
+      );
+    }
+
     const existing = await this.prisma.permission.findFirst({
-      where: { resource: dto.resource, action: dto.action },
+      where: { resource: dto.resource, action: dto.action, roleId: dto.roleId },
     });
     if (existing) throw new ConflictException('Permission already exists');
 
-    return this.prisma.permission.create({ data: dto });
+    const created = await this.prisma.permission.create({ data: dto });
+
+    await this.audit.log({
+      action: 'permission.created',
+      userId: adminId,
+      resourceId: created.id,
+      resourceType: 'permission',
+      metadata: { roleId: dto.roleId, action: dto.action, resource: dto.resource },
+      ip: req?.ip,
+      success: true,
+    });
+
+    return created;
   }
 
   async getPermissions(resource?: string) {
