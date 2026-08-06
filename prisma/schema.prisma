@@ -103,6 +103,8 @@ model Session {
     userId           String
     user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
     refreshTokenHash String
+    /// Refresh-token family for rotation reuse detection (#67)
+    familyId         String    @default(uuid())
     isRevoked        Boolean   @default(false)
     revokedAt        DateTime?
 
@@ -121,6 +123,8 @@ model Session {
     expiresAt        DateTime
 
     @@index([userId])
+    @@index([familyId])
+    @@index([refreshTokenHash])
 }
 
 // ─────────────────────────────────────────────
