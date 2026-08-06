@@ -34,6 +34,7 @@ describe('JwtAuthGuard', () => {
         },
       }),
       isStrategyEnabled: jest.fn().mockReturnValue(true),
+      isFeatureEnabled: jest.fn().mockReturnValue(true),
     };
     const prisma = {
       user: {
