@@ -1,6 +1,8 @@
 import { Module, Global } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
@@ -16,6 +18,37 @@ import { RedisModule } from '../redis/redis.module';
 import { WebhookModule } from '../webhook/webhook.module';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import { resolveJwtKeys } from './jwt-keys.util';
+
+/** Sync peek at config so disabled OAuth strategies are never registered (#79). */
+function oauthProvidersEnabled(): { google: boolean; github: boolean } {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), 'authkit.config.json'), 'utf-8'),
+    );
+    const google = raw?.auth?.strategies?.google;
+    const github = raw?.auth?.strategies?.github;
+    const interpolate = (v: unknown) => {
+      if (typeof v !== 'string') return '';
+      return v.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] || '');
+    };
+    return {
+      google: Boolean(
+        google?.enabled &&
+          interpolate(google.clientId) &&
+          interpolate(google.clientSecret),
+      ),
+      github: Boolean(
+        github?.enabled &&
+          interpolate(github.clientId) &&
+          interpolate(github.clientSecret),
+      ),
+    };
+  } catch {
+    return { google: false, github: false };
+  }
+}
+
+const oauth = oauthProvidersEnabled();
 
 @Global()
 @Module({
@@ -37,7 +70,6 @@ import { resolveJwtKeys } from './jwt-keys.util';
         return {
           privateKey: keys.secret,
           publicKey: keys.publicKey,
-          // Nest JwtModule also accepts `secret` for HS*; keep dual for compatibility
           secret: keys.secret,
           signOptions: {
             algorithm: jwtConfig.algorithm,
@@ -60,8 +92,8 @@ import { resolveJwtKeys } from './jwt-keys.util';
     PasswordService,
     CryptoService,
     TokenBlacklistService,
-    GoogleStrategy,
-    GitHubStrategy,
+    ...(oauth.google ? [GoogleStrategy] : []),
+    ...(oauth.github ? [GitHubStrategy] : []),
   ],
   exports: [AuthService, PasswordService, CryptoService, TokenBlacklistService, JwtModule],
 })

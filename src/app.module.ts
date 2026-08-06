@@ -17,17 +17,47 @@ import { IpListGuard } from './common/guards/ip-list.guard';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { ConfigLoaderService } from './config/config-loader.service';
 
 @Module({
   imports: [
     AppConfigModule,
     PrismaModule,
     RedisModule,
-    ThrottlerModule.forRoot([
-      { name: 'short', ttl: 1_000, limit: 10 },
-      { name: 'medium', ttl: 60_000, limit: 200 },
-      { name: 'long', ttl: 3_600_000, limit: 2_000 },
-    ]),
+    ThrottlerModule.forRootAsync({
+      imports: [AppConfigModule],
+      inject: [ConfigLoaderService],
+      useFactory: (config: ConfigLoaderService) => {
+        const rl = config.get<any>('security')?.rateLimit ?? {};
+        const global = rl.global ?? {};
+        const login = rl.login ?? {};
+        const register = rl.register ?? {};
+        // Named throttlers used by @Throttle({ short|medium|long }) (#79, #87)
+        return [
+          {
+            name: 'short',
+            ttl: 1_000,
+            limit: 10,
+          },
+          {
+            name: 'medium',
+            ttl: Number(login.windowMs) > 0 ? Number(login.windowMs) : 60_000,
+            limit:
+              Number(global.max) > 0
+                ? Math.max(Number(global.max), Number(login.max) || 5)
+                : 200,
+          },
+          {
+            name: 'long',
+            ttl:
+              Number(register.windowMs) > 0
+                ? Number(register.windowMs)
+                : 3_600_000,
+            limit: Number(register.max) > 0 ? Number(register.max) * 200 : 2_000,
+          },
+        ];
+      },
+    }),
     AuthModule,
     UserModule,
     RbacModule,
