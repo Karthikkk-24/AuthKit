@@ -182,4 +182,75 @@ describe('JwtAuthGuard', () => {
       UnauthorizedException,
     );
   });
+
+  describe('mfa_setup token path allowlist (#124)', () => {
+    const mfaSetupPayload = {
+      sub: 'user-123',
+      email: 'a@b.com',
+      roleId: 'role-1',
+      roleName: 'user',
+      type: 'mfa_setup',
+      // setup tokens are not session-bound
+    };
+
+    const makeMfaCtx = (urlFields: {
+      path?: string;
+      url?: string;
+      originalUrl?: string;
+    }) => {
+      const request: any = {
+        headers: { authorization: 'Bearer tok' },
+        cookies: {},
+        ...urlFields,
+      };
+      return {
+        switchToHttp: () => ({ getRequest: () => request }),
+        getHandler: () => ({}),
+        getClass: () => ({}),
+        __request: request,
+      } as any;
+    };
+
+    it('allows exact MFA enrollment pathnames', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({ path: '/api/auth/mfa/totp/setup' });
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it('allows GET /auth/me for setup tokens', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({ path: '/api/auth/me' });
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it('rejects query-string bypass (/users?x=/auth/mfa/)', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({
+        path: '/users',
+        url: '/users?x=/auth/mfa/',
+        originalUrl: '/users?x=/auth/mfa/',
+      });
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects when only url carries MFA substring in query (no path)', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({
+        url: '/api/users?redirect=/auth/mfa/totp/setup',
+      });
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects unrelated auth routes (e.g. change-password)', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({ path: '/api/auth/change-password' });
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+  });
 });
