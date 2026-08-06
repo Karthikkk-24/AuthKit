@@ -132,14 +132,10 @@ export class JwtAuthGuard implements CanActivate {
         .catch(() => {});
     }
 
-    // Tokens minted for MFA enrollment are scope-limited (#23)
-    if (payload.type === 'mfa_setup') {
-      const url: string = request.url ?? '';
-      const allowed =
-        /\/auth\/mfa\//.test(url) || /\/auth\/me$/.test(url);
-      if (!allowed) {
-        throw new ForbiddenException('Token is restricted to MFA setup');
-      }
+    // Tokens minted for MFA enrollment are scope-limited (#23, #124).
+    // Match pathname only — never raw request.url (query can contain "/auth/mfa/").
+    if (payload.type === 'mfa_setup' && !this.isMfaSetupPathAllowed(request)) {
+      throw new ForbiddenException('Token is restricted to MFA setup');
     }
 
     request['user'] = {
@@ -203,6 +199,33 @@ export class JwtAuthGuard implements CanActivate {
     };
 
     return true;
+  }
+
+  /**
+   * Paths an `mfa_setup` JWT may call (#124). Compared against pathname only
+   * (no query/hash), with optional `/api` global prefix.
+   */
+  private static readonly MFA_SETUP_PATHS = new Set([
+    '/auth/me',
+    '/api/auth/me',
+    '/auth/mfa/totp/setup',
+    '/api/auth/mfa/totp/setup',
+    '/auth/mfa/totp/enable',
+    '/api/auth/mfa/totp/enable',
+    '/auth/mfa/email/send',
+    '/api/auth/mfa/email/send',
+    '/auth/mfa/email/verify',
+    '/api/auth/mfa/email/verify',
+  ]);
+
+  private isMfaSetupPathAllowed(request: any): boolean {
+    // Prefer Express `path` (query already stripped). Fall back to url/originalUrl.
+    const raw: string =
+      request.path || request.originalUrl || request.url || '';
+    const pathname = String(raw).split('?')[0].split('#')[0];
+    const normalized =
+      pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+    return JwtAuthGuard.MFA_SETUP_PATHS.has(normalized);
   }
 
   private extractBearerToken(request: any): string | null {
