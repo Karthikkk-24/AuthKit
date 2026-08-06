@@ -46,6 +46,27 @@ export class AuthService {
     return methods.includes(method);
   }
 
+  /** Sanitized DB profile for GET /auth/me (#78). */
+  async getProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+    if (!user || user.deletedAt) throw new NotFoundException('User not found');
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      role: user.role?.name,
+      roleId: user.roleId,
+      emailVerifiedAt: user.emailVerifiedAt,
+      isMfaEnabled: user.isMfaEnabled,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+    };
+  }
+
   private emitWebhook(event: WebhookEventType, payload: Record<string, any>) {
     void this.webhooks.dispatch(event, payload).catch((err) => {
       this.logger.warn(`Webhook dispatch failed for ${event}: ${err?.message}`);
@@ -411,9 +432,17 @@ export class AuthService {
 
     if (!mfaCode) {
       if (opts.challengeStyle === 'password') {
+        // Opaque challenge token — do not leak internal userId (#76).
+        // Legacy clients may still re-submit email+password+mfaCode on /login.
+        const mfaToken = await this.createMfaLoginToken(user.id);
         return {
           kind: 'blocked',
-          response: { requiresMfa: true, userId: user.id },
+          response: {
+            requiresMfa: true,
+            mfaToken,
+            message:
+              'MFA code required. Resubmit login with mfaCode, or complete via POST /auth/mfa/complete with mfaToken and mfaCode.',
+          },
         };
       }
       const mfaToken = await this.createMfaLoginToken(user.id);
