@@ -131,3 +131,18 @@ export class VerifyMagicLinkDto {
   @IsString()
   mfaCode?: string;
 }
+
+export class DisableMfaDto {
+  @ApiPropertyOptional({ description: 'Required for password accounts' })
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Required for OAuth-only / passwordless accounts (TOTP, email OTP, or backup code)',
+  })
+  @IsOptional()
+  @IsString()
+  mfaCode?: string;
+}
