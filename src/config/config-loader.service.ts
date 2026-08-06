@@ -204,7 +204,14 @@ export class ConfigLoaderService {
   }
 
   private interpolateEnv(value: string): string {
-    return value.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] || '');
+    return value.replace(/\$\{([^}]+)\}/g, (_, key) => {
+      if (process.env[key]) return process.env[key] as string;
+      // Canonical SMTP_PASSWORD; accept legacy SMTP_PASS (#71)
+      if (key === 'SMTP_PASSWORD' && process.env.SMTP_PASS) {
+        return process.env.SMTP_PASS;
+      }
+      return '';
+    });
   }
 
   private interpolateObject(obj: any): any {

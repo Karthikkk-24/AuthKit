@@ -56,9 +56,9 @@ const CONFIG_SECTIONS: ConfigSection[] = [
     icon: Zap,
     section: 'features',
     fields: [
-      { key: 'registration', label: 'Registration', type: 'toggle', path: ['registration'] },
-      { key: 'emailVerification', label: 'Email Verification', type: 'toggle', path: ['emailVerification'] },
-      { key: 'passwordReset', label: 'Password Reset', type: 'toggle', path: ['passwordReset'] },
+      { key: 'registration', label: 'Registration (features.registration)', type: 'toggle', path: ['registration'], description: 'Must be on (with strategies.local) for signup + OAuth provisioning' },
+      { key: 'emailVerification', label: 'Email Verification (features.emailVerification)', type: 'toggle', path: ['emailVerification'], description: 'When off, login does not require verification even if auth.registration.requireEmailVerification is true' },
+      { key: 'passwordReset', label: 'Password Reset (features.passwordReset)', type: 'toggle', path: ['passwordReset'], description: 'Gates forgot/reset password endpoints' },
       { key: 'magicLink', label: 'Magic Link', type: 'toggle', path: ['magicLink'] },
       { key: 'mfa', label: 'MFA Feature Flag', type: 'toggle', path: ['mfa'] },
       { key: 'apiKeys', label: 'API Keys', type: 'toggle', path: ['apiKeys'] },
