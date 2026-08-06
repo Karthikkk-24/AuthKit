@@ -159,11 +159,13 @@ async function main() {
   console.log('  → Creating default superadmin…');
   const superadminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@authkit.dev';
   const defaultPublishedPassword = 'Admin@AuthKit2025!';
-  const superadminPassword = process.env.SEED_ADMIN_PASSWORD ?? defaultPublishedPassword;
   const isProd = process.env.NODE_ENV === 'production';
 
+  let superadminPassword = process.env.SEED_ADMIN_PASSWORD;
+  let generatedLocalPassword = false;
+
   if (isProd) {
-    if (!process.env.SEED_ADMIN_PASSWORD) {
+    if (!superadminPassword) {
       throw new Error(
         'SEED_ADMIN_PASSWORD is required when seeding in production. ' +
           'Do not use the published default password.',
@@ -175,13 +177,11 @@ async function main() {
           'Choose a unique strong password.',
       );
     }
-  } else if (
-    !process.env.SEED_ADMIN_PASSWORD ||
-    superadminPassword === defaultPublishedPassword
-  ) {
-    console.warn(
-      '     ⚠  Using published default admin password — set SEED_ADMIN_PASSWORD before any shared/prod deploy.',
-    );
+  } else if (!superadminPassword || superadminPassword === defaultPublishedPassword) {
+    // Never silently reuse the published default — generate a one-time local password (#83)
+    const crypto = require('crypto') as typeof import('crypto');
+    superadminPassword = `ak_${crypto.randomBytes(18).toString('base64url')}`;
+    generatedLocalPassword = true;
   }
 
   const passwordHash = await argon2.hash(superadminPassword, {
@@ -191,9 +191,18 @@ async function main() {
     parallelism: 4,
   });
 
+  const existing = await prisma.user.findUnique({ where: { email: superadminEmail } });
+
   await prisma.user.upsert({
     where: { email: superadminEmail },
-    update: {},
+    // Only rotate password when explicitly provided via env (or first create)
+    update: process.env.SEED_ADMIN_PASSWORD
+      ? {
+          passwordHash,
+          emailVerifiedAt: new Date(),
+          roleId: roleIds['superadmin'],
+        }
+      : { roleId: roleIds['superadmin'] },
     create: {
       email: superadminEmail,
       name: 'Super Admin',
@@ -204,8 +213,19 @@ async function main() {
   });
 
   console.log(`     ✔ Superadmin: ${superadminEmail}`);
-  if (!isProd) {
-    console.log(`     ⚠  Change the default password immediately if this is not a throwaway local DB.\n`);
+  if (generatedLocalPassword && !existing) {
+    console.log(
+      `     🔑 Generated one-time SEED_ADMIN_PASSWORD (save now; not stored in plaintext):\n        ${superadminPassword}`,
+    );
+    console.log(
+      '     ⚠  Set SEED_ADMIN_PASSWORD in .env for stable local re-seeds.\n',
+    );
+  } else if (generatedLocalPassword && existing) {
+    console.log(
+      '     ℹ  Existing admin kept (password unchanged). Set SEED_ADMIN_PASSWORD to rotate.\n',
+    );
+  } else if (!isProd) {
+    console.log('     ✔ Using SEED_ADMIN_PASSWORD from environment.\n');
   }
   console.log('✅ Seed complete!');
 }

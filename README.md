@@ -129,7 +129,7 @@ cd admin && pnpm dev
 - **API:** http://localhost:3000
 - **Swagger:** http://localhost:3000/docs
 - **Admin:** http://localhost:3001
-- **Default admin login:** `admin@authkit.dev` / `Admin@AuthKit2025!`
+- **Admin login:** `admin@authkit.dev` — password from `SEED_ADMIN_PASSWORD`, or the one-time value printed by `pnpm db:seed` when unset
 
 ### Optional: email + HIBP setup (local DX)
 
