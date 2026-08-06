@@ -19,9 +19,9 @@ import type { Request } from 'express';
 
 /**
  * Exposes authkit.config.json to the admin console (#29). The persisted
- * file stores `${ENV_VAR}` placeholders — values shown here are
- * interpolated for convenience, while writes always go through a
- * whitelist so credentials cannot be edited via the API.
+ * file stores `${ENV_VAR}` placeholders. GET returns a redacted view so
+ * interpolated secrets never leave the API (#62). Writes always go through
+ * a whitelist so credentials cannot be edited via the API.
  */
 @ApiTags('Config')
 @ApiBearerAuth()
@@ -36,9 +36,9 @@ export class AdminConfigController {
 
   @Get()
   @RequirePermissions({ action: 'read', resource: 'settings' })
-  @ApiOperation({ summary: 'Get the live authkit configuration' })
+  @ApiOperation({ summary: 'Get the live authkit configuration (secrets redacted)' })
   getConfig() {
-    return this.config.getAll();
+    return this.config.getAllRedacted();
   }
 
   @Patch()
@@ -55,7 +55,7 @@ export class AdminConfigController {
       ConfigLoaderService.EDITABLE_FIELDS.has(k),
     );
 
-    const updated = this.config.updateEditable(body);
+    this.config.updateEditable(body);
 
     await this.audit.log({
       action: 'config.updated',
@@ -66,6 +66,11 @@ export class AdminConfigController {
       success: true,
     });
 
-    return { message: 'Config updated', editable: before, config: updated };
+    // Never return interpolated secrets in the PATCH response either (#62).
+    return {
+      message: 'Config updated',
+      editable: before,
+      config: this.config.getAllRedacted(),
+    };
   }
 }

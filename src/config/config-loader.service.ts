@@ -237,6 +237,14 @@ export class ConfigLoaderService {
     return this.config;
   }
 
+  /**
+   * Admin-facing config snapshot with credential fields redacted (#62).
+   * Live secrets from env interpolation must never reach the admin UI or logs.
+   */
+  getAllRedacted(): AuthKitConfig {
+    return redactSecrets(structuredClone(this.config)) as AuthKitConfig;
+  }
+
   isFeatureEnabled(feature: keyof AuthKitConfig['features']): boolean {
     return this.config.features[feature] ?? false;
   }
@@ -245,4 +253,28 @@ export class ConfigLoaderService {
     const s = this.config.auth.strategies[strategy] as any;
     return s?.enabled ?? false;
   }
+}
+
+/** Replace secret-shaped leaf values so GET/PATCH responses never leak credentials. */
+export function redactSecrets(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map((v) => redactSecrets(v));
+  if (typeof obj !== 'object') return obj;
+
+  const out: any = {};
+  for (const key of Object.keys(obj)) {
+    if (SECRET_KEY_RE.test(key)) {
+      const val = obj[key];
+      if (typeof val === 'string' && val.length > 0) {
+        out[key] = '[REDACTED]';
+      } else {
+        out[key] = val;
+      }
+    } else if (obj[key] && typeof obj[key] === 'object') {
+      out[key] = redactSecrets(obj[key]);
+    } else {
+      out[key] = obj[key];
+    }
+  }
+  return out;
 }
