@@ -52,17 +52,16 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
       headers.set('Authorization', `Bearer ${refreshed.accessToken}`);
       upstream = await fetch(url, { ...init, headers });
       const res = await buildResponse(upstream);
-      const secure = process.env.NODE_ENV === 'production';
       res.cookies.set(
         ACCESS_COOKIE,
         refreshed.accessToken,
-        cookieOptions({ maxAge: 60 * 15, secure }),
+        cookieOptions({ maxAge: 60 * 15 }),
       );
       if (refreshed.refreshToken) {
         res.cookies.set(
           REFRESH_COOKIE,
           refreshed.refreshToken,
-          cookieOptions({ maxAge: 60 * 60 * 24 * 7, secure }),
+          cookieOptions({ maxAge: 60 * 60 * 24 * 7 }),
         );
       }
       return res;

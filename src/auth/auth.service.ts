@@ -340,7 +340,13 @@ export class AuthService {
     });
 
     if (shouldLock) {
-      await this.email.sendAccountLocked(user.email, user.name).catch(() => {});
+      await this.email
+        .sendAccountLocked(user.email, user.name)
+        .catch((err) => {
+          this.logger.warn(
+            `Failed to send account-locked email to ${user.email}: ${err?.message ?? err}`,
+          );
+        });
     }
   }
 

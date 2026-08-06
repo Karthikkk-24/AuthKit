@@ -76,15 +76,46 @@ In **production** it returns 401 unless you explicitly opt in:
 
 Do not expose process metrics to the public internet.
 
+### Request ID correlation (#54, #84)
+
+Every API response includes `X-Request-Id` (incoming header honored when present, else a new UUID).
+
+| Surface | How to correlate |
+|---|---|
+| HTTP response | `X-Request-Id` response header |
+| Nest logs / handlers | `getRequestId()` from AsyncLocalStorage (`src/common/request-context.ts`) |
+| Audit rows | `metadata.requestId` when the audit write runs inside a request context |
+
+**Ops tip:** when investigating a failed login or admin action, grab `X-Request-Id` from the client/network panel and search audit logs for `metadata.requestId` (or filter exports). Propagate the same header across BFF → API hops when debugging multi-service traces.
+
+### Admin BFF cookies (#24, #81, #84)
+
+| Setting | Default | Notes |
+|---|---|---|
+| `httpOnly` | on | JWT never readable by JS |
+| `SameSite` | `Lax` | Safe for OAuth/magic-link top-level redirects |
+| `COOKIE_SAMESITE=strict` | opt-in | Stronger CSRF posture; may break cross-site top-level cookie send on first navigation |
+| Origin check | on (mutating BFF routes) | `admin/src/lib/csrf.ts` rejects cross-site POSTs |
+
+Prefer `Lax` + Origin checks unless you fully control all auth entry URLs on the admin origin.
+
 ### Out of scope / known non-goals
 
 - SMS MFA (enum reserved; not implemented)
 - Multi-ORM switching (Prisma only)
 - Full OpenTelemetry distributed tracing (request IDs + optional Prometheus are available)
 
+## Supply chain (#82)
+
+- CI (`security.yml`) hard-fails on **critical** `pnpm audit --prod` findings
+- High findings are reported (soft gate) and triaged via `pnpm.overrides` + direct bumps
+- Run locally: `pnpm audit --prod` / `pnpm audit:deps`
+- Snyk OSS: `snyk test --all-projects` (requires `snyk auth` or `SNYK_TOKEN`)
+- Snyk Code: enable for org `kkshettigar24` in the Snyk UI, then `snyk code test`
+
 ## Safe defaults for deployers
 
-1. Set unique `SEED_ADMIN_PASSWORD` before production seed
+1. Set unique `SEED_ADMIN_PASSWORD` (required in production; local seed writes a one-time password to `.authkit-seed-password` if unset)
 2. Run `npm run keys:generate` and keep `./keys` out of git
 3. Enable email verification and review `authkit.config.json` feature flags
 4. Restrict CORS origins; keep Redis authenticated
@@ -93,3 +124,4 @@ Do not expose process metrics to the public internet.
 7. Set `AUTHKIT_SECRET_KEY` (64-char hex) for TOTP encryption at rest
 8. Set `TRUST_PROXY=1` only when behind a real reverse proxy
 9. Prefer fail-closed Redis blacklist in staging via `AUTHKIT_STRICT_REDIS=true`
+10. Optionally set `COOKIE_SAMESITE=strict` for the admin BFF when OAuth redirects are same-site only
