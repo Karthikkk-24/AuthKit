@@ -11,7 +11,14 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RbacService, CreateRoleDto, CreatePermissionDto } from './rbac.service';
+import { RbacService } from './rbac.service';
+import {
+  CreateRoleDto,
+  CreatePermissionDto,
+  UpdateRoleDto,
+  AssignRolePermissionsDto,
+  SetUserPermissionsDto,
+} from './dto/rbac.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -59,7 +66,7 @@ export class RbacController {
   @ApiOperation({ summary: 'Update a role' })
   updateRole(
     @Param('id') id: string,
-    @Body() body: Partial<CreateRoleDto>,
+    @Body() body: UpdateRoleDto,
     @CurrentUser() admin: any,
     @Req() req: Request,
   ) {
@@ -81,20 +88,25 @@ export class RbacController {
   @Patch('roles/:id/permissions')
   @RequirePermissions({ action: 'update', resource: 'roles' })
   @ApiOperation({
-    summary: 'Replace a role\'s permissions (action/resource pairs)',
+    summary: "Replace a role's permissions (action/resource pairs)",
   })
   assignPermissions(
     @Param('id') id: string,
-    @Body() body: { permissions: Array<{ action: string; resource: string }> },
+    @Body() body: AssignRolePermissionsDto,
     @CurrentUser() admin: any,
     @Req() req: Request,
   ) {
-    return this.rbacService.assignPermissionsToRole(id, body.permissions ?? [], admin.id, req);
+    return this.rbacService.assignPermissionsToRole(
+      id,
+      body.permissions ?? [],
+      admin.id,
+      req,
+    );
   }
 
   // ─── PERMISSIONS ───────────────────────────────────────────────────
   @Post('permissions')
-  @RequirePermissions({ action: 'update', resource: 'permissions' })
+  @RequirePermissions({ action: 'create', resource: 'permissions' })
   @ApiOperation({ summary: 'Create a permission on a role' })
   createPermission(
     @Body() body: CreatePermissionDto,
@@ -122,20 +134,17 @@ export class RbacController {
   // ─── PER-USER OVERRIDES (#26) ──────────────────────────────────────
   @Get('users/:userId/permissions')
   @RequirePermissions({ action: 'read', resource: 'permissions' })
-  @ApiOperation({ summary: 'List a user\'s permission overrides' })
+  @ApiOperation({ summary: "List a user's permission overrides" })
   listUserPermissions(@Param('userId') userId: string) {
     return this.rbacService.listUserPermissions(userId);
   }
 
   @Patch('users/:userId/permissions')
   @RequirePermissions({ action: 'update', resource: 'permissions' })
-  @ApiOperation({ summary: 'Replace a user\'s grant/deny permission overrides' })
+  @ApiOperation({ summary: "Replace a user's grant/deny permission overrides" })
   setUserPermissions(
     @Param('userId') userId: string,
-    @Body()
-    body: {
-      permissions: Array<{ action: string; resource: string; effect: 'grant' | 'deny' }>;
-    },
+    @Body() body: SetUserPermissionsDto,
     @CurrentUser() admin: any,
     @Req() req: Request,
   ) {
@@ -146,5 +155,4 @@ export class RbacController {
       req,
     );
   }
-
 }

@@ -11,20 +11,13 @@ import {
   getRoleRank,
   permissionsSubsetOf,
 } from '../common/role-hierarchy';
+import {
+  CreateRoleDto,
+  CreatePermissionDto,
+  UpdateRoleDto,
+} from './dto/rbac.dto';
 
-export class CreateRoleDto {
-  name: string;
-  description?: string;
-  parentId?: string;
-  isSystem?: boolean;
-}
-
-export class CreatePermissionDto {
-  roleId: string;
-  resource: string;
-  action: string;
-  description?: string;
-}
+export { CreateRoleDto, CreatePermissionDto, UpdateRoleDto };
 
 @Injectable()
 export class RbacService {
@@ -184,7 +177,7 @@ export class RbacService {
 
   async updateRole(
     id: string,
-    data: Partial<CreateRoleDto>,
+    data: Partial<CreateRoleDto> | UpdateRoleDto,
     adminId: string,
     req: any,
   ) {

@@ -25,8 +25,9 @@ export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   @Get()
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'read', resource: 'audit' })
   @ApiOperation({ summary: 'Query audit logs (admin)' })
   query(
     @Query('userId') userId?: string,
