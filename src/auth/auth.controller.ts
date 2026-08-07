@@ -33,6 +33,7 @@ import {
   VerifyEmailDto,
   MagicLinkRequestDto,
   VerifyMfaDto,
+  SetupTotpDto,
   ExchangeOAuthCodeDto,
   CompleteMfaLoginDto,
   MfaChallengeEmailDto,
@@ -206,9 +207,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Post('mfa/totp/setup')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Generate TOTP secret and QR code' })
-  setupTotp(@CurrentUser() user: any) {
-    return this.authService.setupTotp(user.id);
+  @ApiOperation({
+    summary:
+      'Generate TOTP secret and QR code (requires current MFA code when already enrolled)',
+  })
+  setupTotp(@CurrentUser() user: any, @Body() dto: SetupTotpDto) {
+    return this.authService.setupTotp(user.id, dto?.currentMfaCode);
   }
 
   @UseGuards(JwtAuthGuard)
