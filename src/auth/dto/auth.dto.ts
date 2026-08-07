@@ -121,6 +121,16 @@ export class CompleteMfaLoginDto {
   mfaCode: string;
 }
 
+/** Request an email OTP during an unauthenticated MFA login challenge (#106). */
+export class MfaChallengeEmailDto {
+  @ApiProperty({
+    description:
+      'One-time mfaToken from login / OAuth / magic-link MFA challenge (proves first factor)',
+  })
+  @IsString()
+  mfaToken: string;
+}
+
 export class VerifyMagicLinkDto {
   @ApiProperty()
   @IsString()

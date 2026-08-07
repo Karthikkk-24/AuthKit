@@ -441,17 +441,27 @@ export class AuthService {
         // Opaque challenge token — do not leak internal userId (#76).
         // Legacy clients may still re-submit email+password+mfaCode on /login.
         const mfaToken = await this.createMfaLoginToken(user.id);
+        void this.maybeAutoSendEmailOtpForChallenge(user.id).catch((err) => {
+          this.logger.warn(
+            `Auto email OTP for login challenge failed: ${err?.message ?? err}`,
+          );
+        });
         return {
           kind: 'blocked',
           response: {
             requiresMfa: true,
             mfaToken,
             message:
-              'MFA code required. Resubmit login with mfaCode, or complete via POST /auth/mfa/complete with mfaToken and mfaCode.',
+              'MFA code required. Resubmit login with mfaCode, or complete via POST /auth/mfa/complete with mfaToken and mfaCode. For email MFA, request a code via POST /auth/mfa/email/challenge.',
           },
         };
       }
       const mfaToken = await this.createMfaLoginToken(user.id);
+      void this.maybeAutoSendEmailOtpForChallenge(user.id).catch((err) => {
+        this.logger.warn(
+          `Auto email OTP for login challenge failed: ${err?.message ?? err}`,
+        );
+      });
       return {
         kind: 'blocked',
         response: {
@@ -459,7 +469,7 @@ export class AuthService {
           mfaToken,
           userId: user.id,
           message:
-            'MFA code required. Complete sign-in via POST /auth/mfa/complete with mfaToken and mfaCode.',
+            'MFA code required. Complete sign-in via POST /auth/mfa/complete with mfaToken and mfaCode. For email MFA, request a code via POST /auth/mfa/email/challenge.',
         },
       };
     }
@@ -1264,13 +1274,84 @@ export class AuthService {
     }
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+    return this.issueEmailOtp(user);
+  }
 
+  /**
+   * Send an email OTP during an unauthenticated MFA login challenge (#106).
+   * The opaque `mfaToken` proves first-factor success; requires an enrolled EMAIL factor.
+   */
+  async sendEmailOtpForLoginChallenge(mfaToken: string) {
+    if (!mfaToken || typeof mfaToken !== 'string') {
+      throw new BadRequestException('Invalid MFA token');
+    }
+    this.assertMfaMethodEnabled('email');
+    if (!this.isMfaMethodAllowed('email')) {
+      throw new BadRequestException('Email MFA is disabled');
+    }
+
+    const user = await this.resolveMfaChallengeUser(mfaToken);
+    await this.assertEmailMfaEnrolled(user.id);
+    return this.issueEmailOtp(user);
+  }
+
+  /**
+   * Best-effort auto-send when a login MFA challenge is issued and EMAIL MFA
+   * is enrolled (#106). Failures must not block the challenge response.
+   */
+  private async maybeAutoSendEmailOtpForChallenge(userId: string) {
+    if (!this.isMfaMethodAllowed('email')) return;
+    const enrolled = await this.prisma.mfaCredential.findUnique({
+      where: { userId_type: { userId, type: 'EMAIL' } },
+      select: { isEnabled: true },
+    });
+    if (!enrolled?.isEnabled) return;
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt || user.isLocked) return;
+    await this.issueEmailOtp(user);
+  }
+
+  private async resolveMfaChallengeUser(mfaToken: string) {
+    const tokenHash = crypto.createHash('sha256').update(mfaToken).digest('hex');
+    const record = await this.prisma.emailVerification.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+    if (!record || record.purpose !== 'mfa_login') {
+      throw new BadRequestException('Invalid or expired MFA token');
+    }
+    if (record.usedAt) throw new BadRequestException('MFA token already used');
+    if (record.expiresAt < new Date()) {
+      throw new BadRequestException('MFA token expired');
+    }
+    if (!record.user || record.user.deletedAt || record.user.isLocked) {
+      throw new UnauthorizedException('Account is not allowed to sign in');
+    }
+    return record.user;
+  }
+
+  private async assertEmailMfaEnrolled(userId: string) {
+    const cred = await this.prisma.mfaCredential.findUnique({
+      where: { userId_type: { userId, type: 'EMAIL' } },
+      select: { isEnabled: true },
+    });
+    if (!cred?.isEnabled) {
+      throw new BadRequestException('Email MFA is not enrolled for this account');
+    }
+  }
+
+  private async issueEmailOtp(user: { id: string; email: string; name: string }) {
     const otp = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
-    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${userId}`;
+    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${user.id}`;
     const redis = this.redisClient;
     if (!redis) throw new BadRequestException('Email MFA is temporarily unavailable');
 
-    await redis.set(key, crypto.createHash('sha256').update(otp).digest('hex'), 'EX', 600);
+    await redis.set(
+      key,
+      crypto.createHash('sha256').update(otp).digest('hex'),
+      'EX',
+      600,
+    );
 
     await this.email.sendEmailOtp(user.email, user.name, otp);
     return { message: 'Verification code sent' };
