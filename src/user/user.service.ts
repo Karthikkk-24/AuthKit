@@ -113,7 +113,18 @@ export class UserService {
     };
   }
 
-  async updateProfile(userId: string, data: { name?: string; avatarUrl?: string }) {
+  /**
+   * Self-service profile update (#104). Only name / avatarUrl are writable —
+   * never forward an untyped body into Prisma (mass assignment).
+   */
+  async updateProfile(
+    userId: string,
+    dto: { name?: string; avatarUrl?: string },
+  ) {
+    const data: { name?: string; avatarUrl?: string } = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.avatarUrl !== undefined) data.avatarUrl = dto.avatarUrl;
+
     const user = await this.prisma.user.update({
       where: { id: userId },
       data,
