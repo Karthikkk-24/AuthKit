@@ -20,6 +20,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import type { Request } from 'express';
 
 @ApiTags('Users')
@@ -36,12 +37,9 @@ export class UserController {
   }
 
   @Patch('me')
-  @ApiOperation({ summary: 'Update own profile' })
-  updateMe(
-    @CurrentUser() user: any,
-    @Body() body: { name?: string; avatarUrl?: string },
-  ) {
-    return this.userService.updateProfile(user.id, body);
+  @ApiOperation({ summary: 'Update own profile (name / avatarUrl only)' })
+  updateMe(@CurrentUser() user: any, @Body() dto: UpdateProfileDto) {
+    return this.userService.updateProfile(user.id, dto);
   }
 
   @Get('me/sessions')
