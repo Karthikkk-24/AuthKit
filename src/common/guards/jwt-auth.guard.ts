@@ -202,20 +202,16 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   /**
-   * Paths an `mfa_setup` JWT may call (#124). Compared against pathname only
-   * (no query/hash), with optional `/api` global prefix.
+   * Canonical pathnames an `mfa_setup` JWT may call (#124, #133).
+   * Compared after stripping optional `/api` global prefix and `/v1` URI version
+   * (see `main.ts`), and after removing query/hash.
    */
   private static readonly MFA_SETUP_PATHS = new Set([
     '/auth/me',
-    '/api/auth/me',
     '/auth/mfa/totp/setup',
-    '/api/auth/mfa/totp/setup',
     '/auth/mfa/totp/enable',
-    '/api/auth/mfa/totp/enable',
     '/auth/mfa/email/send',
-    '/api/auth/mfa/email/send',
     '/auth/mfa/email/verify',
-    '/api/auth/mfa/email/verify',
   ]);
 
   private isMfaSetupPathAllowed(request: any): boolean {
@@ -225,7 +221,20 @@ export class JwtAuthGuard implements CanActivate {
     const pathname = String(raw).split('?')[0].split('#')[0];
     const normalized =
       pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
-    return JwtAuthGuard.MFA_SETUP_PATHS.has(normalized);
+    return JwtAuthGuard.MFA_SETUP_PATHS.has(
+      this.stripApiVersionPrefix(normalized),
+    );
+  }
+
+  /**
+   * Map live Nest paths (`/api/v1/auth/...`, `/api/auth/...`, `/v1/auth/...`,
+   * `/auth/...`) onto the canonical allowlist entries (#133).
+   */
+  private stripApiVersionPrefix(pathname: string): string {
+    if (pathname.startsWith('/api/v1/')) return pathname.slice('/api/v1'.length);
+    if (pathname.startsWith('/api/')) return pathname.slice('/api'.length);
+    if (pathname.startsWith('/v1/')) return pathname.slice('/v1'.length);
+    return pathname;
   }
 
   private extractBearerToken(request: any): string | null {
