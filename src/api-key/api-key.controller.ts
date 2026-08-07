@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Param, Body, UseGuards, Req } from '@nes
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ApiKeyService } from './api-key.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RejectApiKeyGuard } from '../common/guards/reject-api-key.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { Request } from 'express';
 
@@ -13,6 +14,7 @@ export class ApiKeyController {
   constructor(private readonly apiKeyService: ApiKeyService) {}
 
   @Post()
+  @UseGuards(RejectApiKeyGuard)
   @ApiOperation({ summary: 'Create an API key (raw key shown only once)' })
   create(
     @CurrentUser() user: any,

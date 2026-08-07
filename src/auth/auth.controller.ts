@@ -44,6 +44,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RejectApiKeyGuard } from '../common/guards/reject-api-key.guard';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 
@@ -118,7 +119,7 @@ export class AuthController {
   }
 
   @Throttle({ medium: { ttl: 900_000, limit: 5 } })
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -152,7 +153,7 @@ export class AuthController {
   }
 
   // ─── LOGOUT ────────────────────────────────────────────────────────
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -162,7 +163,7 @@ export class AuthController {
     return this.authService.logout(user.id, user.sessionId, token, req);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -194,7 +195,7 @@ export class AuthController {
     return this.authService.resetPassword(dto, req);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Patch('change-password')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -204,7 +205,7 @@ export class AuthController {
   }
 
   // ─── MFA ───────────────────────────────────────────────────────────
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('mfa/totp/setup')
   @ApiBearerAuth()
   @ApiOperation({
@@ -215,7 +216,7 @@ export class AuthController {
     return this.authService.setupTotp(user.id, dto?.currentMfaCode);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('mfa/totp/enable')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Confirm TOTP setup and get backup codes' })
@@ -223,7 +224,7 @@ export class AuthController {
     return this.authService.enableTotp(user.id, dto.code);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Delete('mfa/disable')
   @ApiBearerAuth()
   @ApiOperation({
@@ -239,7 +240,7 @@ export class AuthController {
 
   // ─── EMAIL OTP MFA (#18) ────────────────────────────────────────────
   @Throttle({ medium: { ttl: 900_000, limit: 5 } })
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('mfa/email/send')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -264,7 +265,7 @@ export class AuthController {
     return this.authService.sendEmailOtpForLoginChallenge(dto.mfaToken);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
   @Post('mfa/email/verify')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
