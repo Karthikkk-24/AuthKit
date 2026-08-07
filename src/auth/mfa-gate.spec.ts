@@ -40,6 +40,9 @@ describe('MFA gate on passwordless auth (#60)', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn().mockResolvedValue({}),
       },
+      mfaCredential: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       session: {
         count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn(),
@@ -47,6 +50,7 @@ describe('MFA gate on passwordless auth (#60)', () => {
       },
       user: {
         update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(overrides.user ?? userWithMfa),
       },
     };
 
@@ -75,7 +79,9 @@ describe('MFA gate on passwordless auth (#60)', () => {
         return {};
       }),
       isStrategyEnabled: jest.fn().mockReturnValue(true),
-      isFeatureEnabled: jest.fn().mockReturnValue(false),
+      isFeatureEnabled: jest.fn((feature: string) =>
+        feature === 'magicLink' || feature === 'mfa' || feature === 'registration',
+      ),
     };
 
     const jwt = {

@@ -35,6 +35,7 @@ import {
   VerifyMfaDto,
   ExchangeOAuthCodeDto,
   CompleteMfaLoginDto,
+  MfaChallengeEmailDto,
   VerifyMagicLinkDto,
   DisableMfaDto,
 } from './dto/auth.dto';
@@ -238,9 +239,25 @@ export class AuthController {
   @Post('mfa/email/send')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Send an email OTP for MFA verification' })
+  @ApiOperation({ summary: 'Send an email OTP for MFA verification / enrollment' })
   sendEmailOtp(@CurrentUser() user: any) {
     return this.authService.sendEmailOtp(user.id);
+  }
+
+  /**
+   * Unauthenticated MFA challenge resend (#106).
+   * `mfaToken` proves first-factor auth; no session JWT required.
+   */
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
+  @Public()
+  @Post('mfa/email/challenge')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Send email OTP for an MFA login challenge (keyed by mfaToken; no JWT)',
+  })
+  sendEmailOtpForChallenge(@Body() dto: MfaChallengeEmailDto) {
+    return this.authService.sendEmailOtpForLoginChallenge(dto.mfaToken);
   }
 
   @UseGuards(JwtAuthGuard)
