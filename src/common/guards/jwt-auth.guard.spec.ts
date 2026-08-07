@@ -183,7 +183,7 @@ describe('JwtAuthGuard', () => {
     );
   });
 
-  describe('mfa_setup token path allowlist (#124)', () => {
+  describe('mfa_setup token path allowlist (#124, #133)', () => {
     const mfaSetupPayload = {
       sub: 'user-123',
       email: 'a@b.com',
@@ -211,15 +211,19 @@ describe('JwtAuthGuard', () => {
       } as any;
     };
 
-    it('allows exact MFA enrollment pathnames', async () => {
+    it.each([
+      '/auth/mfa/totp/setup',
+      '/api/auth/mfa/totp/setup',
+      '/v1/auth/mfa/totp/setup',
+      '/api/v1/auth/mfa/totp/setup',
+      '/api/v1/auth/mfa/totp/enable',
+      '/api/v1/auth/mfa/email/send',
+      '/api/v1/auth/mfa/email/verify',
+      '/api/v1/auth/me',
+      '/api/v1/auth/me/',
+    ])('allows live Nest pathname %s', async (path) => {
       const guard = makeGuard({ payload: mfaSetupPayload, session: null });
-      const ctx = makeMfaCtx({ path: '/api/auth/mfa/totp/setup' });
-      await expect(guard.canActivate(ctx)).resolves.toBe(true);
-    });
-
-    it('allows GET /auth/me for setup tokens', async () => {
-      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
-      const ctx = makeMfaCtx({ path: '/api/auth/me' });
+      const ctx = makeMfaCtx({ path });
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
@@ -238,7 +242,7 @@ describe('JwtAuthGuard', () => {
     it('rejects when only url carries MFA substring in query (no path)', async () => {
       const guard = makeGuard({ payload: mfaSetupPayload, session: null });
       const ctx = makeMfaCtx({
-        url: '/api/users?redirect=/auth/mfa/totp/setup',
+        url: '/api/v1/users?redirect=/auth/mfa/totp/setup',
       });
       await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
         ForbiddenException,
@@ -247,7 +251,15 @@ describe('JwtAuthGuard', () => {
 
     it('rejects unrelated auth routes (e.g. change-password)', async () => {
       const guard = makeGuard({ payload: mfaSetupPayload, session: null });
-      const ctx = makeMfaCtx({ path: '/api/auth/change-password' });
+      const ctx = makeMfaCtx({ path: '/api/v1/auth/change-password' });
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects prefix smuggling (/api/v1/evil/auth/mfa/totp/setup)', async () => {
+      const guard = makeGuard({ payload: mfaSetupPayload, session: null });
+      const ctx = makeMfaCtx({ path: '/api/v1/evil/auth/mfa/totp/setup' });
       await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
