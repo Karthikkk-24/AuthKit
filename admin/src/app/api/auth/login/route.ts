@@ -8,11 +8,12 @@ import {
 } from '@/lib/auth-cookies';
 
 /**
- * BFF login (#24): exchange credentials with the Nest API and store tokens
+ * BFF login (#24, #105): exchange credentials with the Nest API and store tokens
  * in httpOnly cookies on the admin origin. The JWT never touches localStorage.
+ * MFA-enrolled admins resubmit with `mfaCode` — forward it to Nest.
  */
 export async function POST(req: NextRequest) {
-  let body: { email?: string; password?: string };
+  let body: { email?: string; password?: string; mfaCode?: string };
   try {
     body = await req.json();
   } catch {
@@ -23,10 +24,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Email and password are required' }, { status: 400 });
   }
 
+  const loginPayload: {
+    email: string;
+    password: string;
+    mfaCode?: string;
+  } = {
+    email: body.email,
+    password: body.password,
+  };
+  if (typeof body.mfaCode === 'string' && body.mfaCode.length > 0) {
+    loginPayload.mfaCode = body.mfaCode;
+  }
+
   const upstream = await fetch(`${backendUrl()}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: body.email, password: body.password }),
+    body: JSON.stringify(loginPayload),
   });
 
   const data = await upstream.json().catch(() => ({}));
