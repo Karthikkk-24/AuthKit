@@ -100,6 +100,17 @@ export class VerifyMfaDto {
   isBackupCode?: boolean;
 }
 
+/** Begin TOTP enrollment / re-enrollment (#125). */
+export class SetupTotpDto {
+  @ApiPropertyOptional({
+    description:
+      'Required when MFA is already enabled — prove the current factor before rotating the TOTP secret',
+  })
+  @IsOptional()
+  @IsString()
+  currentMfaCode?: string;
+}
+
 export class ExchangeOAuthCodeDto {
   @ApiProperty({ description: 'One-time OAuth / magic-link exchange code' })
   @IsString()

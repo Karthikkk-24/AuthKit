@@ -1048,13 +1048,27 @@ export class AuthService {
     return stored; // legacy plaintext
   }
 
-  async setupTotp(userId: string) {
+  async setupTotp(userId: string, currentMfaCode?: string) {
     if (!this.isMfaMethodAllowed('totp')) {
       throw new BadRequestException('TOTP MFA is disabled');
     }
     const mfaConfig = this.config.get<any>('mfa');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+
+    // Re-enrollment must prove the current factor before rotating the secret (#125).
+    const existingTotp = await this.prisma.mfaCredential.findUnique({
+      where: { userId_type: { userId, type: 'TOTP' } },
+      select: { isEnabled: true },
+    });
+    if (user.isMfaEnabled || existingTotp?.isEnabled) {
+      if (!currentMfaCode || typeof currentMfaCode !== 'string') {
+        throw new BadRequestException(
+          'Current MFA code is required to re-enroll TOTP. Disable MFA first, or pass currentMfaCode.',
+        );
+      }
+      await this.verifyMfaWithFallback(userId, currentMfaCode);
+    }
 
     const secret = speakeasy.generateSecret({
       name: `${mfaConfig.totpIssuer}:${user.email}`,
