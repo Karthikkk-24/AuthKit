@@ -14,6 +14,13 @@ describe('UserService hierarchy guards (#63)', () => {
       role: {
         findUnique: jest.fn(),
       },
+      $transaction: jest.fn(async (ops: any[]) => {
+        const results = [];
+        for (const op of ops) {
+          results.push(await op);
+        }
+        return results;
+      }),
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const config = {};
@@ -31,15 +38,18 @@ describe('UserService hierarchy guards (#63)', () => {
 
   const admin = {
     id: 'admin-1',
+    roleId: 'r-admin',
     role: { id: 'r-admin', name: 'admin' },
   };
   const superadmin = {
     id: 'sa-1',
+    roleId: 'r-sa',
     role: { id: 'r-sa', name: 'superadmin' },
     deletedAt: null,
   };
   const regular = {
     id: 'user-1',
+    roleId: 'r-user',
     role: { id: 'r-user', name: 'user' },
     deletedAt: null,
   };
@@ -76,6 +86,27 @@ describe('UserService hierarchy guards (#63)', () => {
     await expect(
       service.assignRole('sa-1', 'r-user', 'admin-1', {}),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('revokes sessions when role actually changes (#107)', async () => {
+    const { service, prisma } = makeService();
+    prisma.user.findUnique
+      .mockResolvedValueOnce(admin)
+      .mockResolvedValueOnce(regular);
+    prisma.role.findUnique.mockResolvedValue({
+      id: 'r-mod',
+      name: 'moderator',
+      permissions: [],
+      parent: null,
+    });
+
+    await service.assignRole('user-1', 'r-mod', 'admin-1', {});
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.session.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', isRevoked: false },
+      data: { isRevoked: true, revokedAt: expect.any(Date) },
+    });
   });
 
   it('blocks admin from deleting a superadmin', async () => {

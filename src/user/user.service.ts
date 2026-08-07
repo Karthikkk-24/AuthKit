@@ -203,14 +203,27 @@ export class UserService {
 
     void target;
 
-    await this.prisma.user.update({ where: { id: userId }, data: { roleId } });
+    const roleChanged = target.roleId !== roleId;
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { roleId } }),
+      // Force re-auth so access JWTs cannot keep a stale roleName (#107).
+      ...(roleChanged
+        ? [
+            this.prisma.session.updateMany({
+              where: { userId, isRevoked: false },
+              data: { isRevoked: true, revokedAt: new Date() },
+            }),
+          ]
+        : []),
+    ]);
 
     await this.audit.log({
       action: 'user.role_assigned',
       userId: adminId,
       resourceId: userId,
       resourceType: 'user',
-      metadata: { roleId, roleName: role.name },
+      metadata: { roleId, roleName: role.name, sessionsRevoked: roleChanged },
       ip: req?.ip,
       success: true,
     });
