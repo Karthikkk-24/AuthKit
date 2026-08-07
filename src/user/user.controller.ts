@@ -17,6 +17,7 @@ import { UserService } from './user.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RejectApiKeyGuard } from '../common/guards/reject-api-key.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -43,12 +44,14 @@ export class UserController {
   }
 
   @Get('me/sessions')
+  @UseGuards(RejectApiKeyGuard)
   @ApiOperation({ summary: 'List own active sessions' })
   getMySessions(@CurrentUser() user: any) {
     return this.userService.getSessions(user.id);
   }
 
   @Delete('me/sessions/:sessionId')
+  @UseGuards(RejectApiKeyGuard)
   @ApiOperation({ summary: 'Revoke a specific session' })
   revokeSession(
     @CurrentUser() user: any,
@@ -59,12 +62,14 @@ export class UserController {
   }
 
   @Get('me/export')
+  @UseGuards(RejectApiKeyGuard)
   @ApiOperation({ summary: 'Export own data (GDPR)' })
   exportData(@CurrentUser() user: any) {
     return this.userService.exportData(user.id);
   }
 
   @Delete('me')
+  @UseGuards(RejectApiKeyGuard)
   @ApiOperation({ summary: 'Delete own account (GDPR erase)' })
   deleteMe(
     @CurrentUser() user: any,
