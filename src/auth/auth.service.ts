@@ -1202,7 +1202,18 @@ export class AuthService {
       // not a backup code either — keep trying
     }
 
-    // 3) Pending EMAIL OTP.
+    // 3) Pending EMAIL OTP — only if EMAIL MFA is enrolled (#146).
+    // Enrollment OTPs must complete via POST /auth/mfa/email/verify, not login.
+    if (!this.isMfaMethodAllowed('email')) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+    const emailCred = await this.prisma.mfaCredential.findUnique({
+      where: { userId_type: { userId, type: 'EMAIL' } },
+      select: { isEnabled: true },
+    });
+    if (!emailCred?.isEnabled) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
     await this.verifyEmailOtpCodeOnly(userId, code);
     return true;
   }
