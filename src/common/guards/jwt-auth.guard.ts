@@ -77,6 +77,7 @@ export class JwtAuthGuard implements CanActivate {
         roleId: true,
         isLocked: true,
         deletedAt: true,
+        role: { select: { name: true } },
       },
     });
 
@@ -138,12 +139,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new ForbiddenException('Token is restricted to MFA setup');
     }
 
+    // Always use DB roleName — never trust the JWT claim after demotion (#107).
     request['user'] = {
       ...payload,
       id: user.id,
       email: user.email,
       roleId: user.roleId,
-      roleName: payload.roleName,
+      roleName: user.role?.name,
       sessionId: payload.sessionId,
       isApiKeyAuth: false,
     };
