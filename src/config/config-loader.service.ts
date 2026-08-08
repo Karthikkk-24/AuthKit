@@ -136,13 +136,19 @@ const EDITABLE_FIELDS = new Set([
 const SECRET_KEY_RE =
   /^(password|passwd|secret|apiKey|api_key|token|clientSecret|privateKey)$/i;
 
+/** Keys that must never be copied during merge/interpolate (#151). */
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Deep-merge objects; never overwrite credential keys from API patches. */
 function deepMergePreserveSecrets(target: any, source: any): any {
   if (source === null || source === undefined) return target;
   if (typeof source !== 'object' || Array.isArray(source)) return source;
   const base =
-    target && typeof target === 'object' && !Array.isArray(target) ? { ...target } : {};
+    target && typeof target === 'object' && !Array.isArray(target)
+      ? { ...target }
+      : Object.create(null);
   for (const key of Object.keys(source)) {
+    if (DANGEROUS_KEYS.has(key)) continue;
     if (SECRET_KEY_RE.test(key)) continue;
     const next = source[key];
     if (next && typeof next === 'object' && !Array.isArray(next)) {
@@ -193,6 +199,7 @@ export class ConfigLoaderService {
     let changed = false;
 
     for (const key of Object.keys(patch ?? {})) {
+      if (DANGEROUS_KEYS.has(key)) continue;
       if (!EDITABLE_FIELDS.has(key)) continue;
       raw[key] = deepMergePreserveSecrets(raw[key] ?? {}, (patch as any)[key]);
       changed = true;
@@ -218,8 +225,9 @@ export class ConfigLoaderService {
     if (typeof obj === 'string') return this.interpolateEnv(obj);
     if (Array.isArray(obj)) return obj.map((v) => this.interpolateObject(v));
     if (obj && typeof obj === 'object') {
-      const result: any = {};
+      const result: any = Object.create(null);
       for (const key of Object.keys(obj)) {
+        if (DANGEROUS_KEYS.has(key)) continue;
         result[key] = this.interpolateObject(obj[key]);
       }
       return result;
