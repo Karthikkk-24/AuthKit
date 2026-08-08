@@ -30,35 +30,42 @@ async function bootstrap() {
   }
 
   // ── Security ──────────────────────────────────────────────────────
-  app.use(helmet());
+  const security = config.get<any>('security') ?? {};
+  if (security.helmet?.enabled !== false) {
+    app.use(helmet());
+  }
   app.use(compression());
 
-  // ── CORS (#77) ────────────────────────────────────────────────────
-  const corsConfig = config.get<any>('security')?.cors ?? {};
-  const origins: string[] = Array.isArray(corsConfig.origins)
-    ? corsConfig.origins.filter((o: unknown) => typeof o === 'string' && o && o !== '*')
-    : [];
-  const wantCredentials = corsConfig.credentials !== false;
-
-  if (nodeEnv === 'production' && origins.length === 0) {
-    throw new Error(
-      'security.cors.origins must be a non-empty list in production (never * with credentials)',
-    );
-  }
-
-  if (origins.length > 0) {
-    app.enableCors({
-      origin: origins,
-      credentials: wantCredentials,
-      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    });
+  // ── CORS (#77, #122) ──────────────────────────────────────────────
+  const corsConfig = security.cors ?? {};
+  if (corsConfig.enabled === false) {
+    logger.log('CORS disabled via security.cors.enabled=false');
   } else {
-    // Dev-only: reflect request Origin (never bare *)
-    app.enableCors({
-      origin: true,
-      credentials: true,
-      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    });
+    const origins: string[] = Array.isArray(corsConfig.origins)
+      ? corsConfig.origins.filter((o: unknown) => typeof o === 'string' && o && o !== '*')
+      : [];
+    const wantCredentials = corsConfig.credentials !== false;
+
+    if (nodeEnv === 'production' && origins.length === 0) {
+      throw new Error(
+        'security.cors.origins must be a non-empty list in production (never * with credentials)',
+      );
+    }
+
+    if (origins.length > 0) {
+      app.enableCors({
+        origin: origins,
+        credentials: wantCredentials,
+        methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+      });
+    } else {
+      // Dev-only: reflect request Origin (never bare *)
+      app.enableCors({
+        origin: true,
+        credentials: true,
+        methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+      });
+    }
   }
 
   // ── Global prefix & versioning ────────────────────────────────────

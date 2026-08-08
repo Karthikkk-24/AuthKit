@@ -368,10 +368,12 @@ export class AuthService {
     const newAttempts = user.failedLoginAttempts + 1;
     const shouldLock = newAttempts >= lockConfig.maxAttempts;
 
-    // Progressive delay: slow down successive failures to blunt brute force (#22)
-    if (lockConfig.progressiveDelay && !shouldLock) {
-      const delayMs = Math.min(2 ** (newAttempts - 1) * 500, 10_000);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    // Progressive in-request sleep was removed (#122): holding the socket amplifies
+    // DoS. Prefer HTTP 429 via @Throttle on login + account lockout instead.
+    if (lockConfig.progressiveDelay) {
+      this.logger.debug(
+        'accountLockout.progressiveDelay is ignored; use security.rateLimit.login throttling',
+      );
     }
 
     await this.prisma.user.update({

@@ -29,6 +29,15 @@ import { ConfigLoaderService } from './config/config-loader.service';
       inject: [ConfigLoaderService],
       useFactory: (config: ConfigLoaderService) => {
         const rl = config.get<any>('security')?.rateLimit ?? {};
+        // When disabled, keep ThrottlerModule happy with effectively unlimited
+        // named buckets so @Throttle decorators are no-ops (#122).
+        if (rl.enabled === false) {
+          return [
+            { name: 'short', ttl: 1_000, limit: 1_000_000 },
+            { name: 'medium', ttl: 60_000, limit: 1_000_000 },
+            { name: 'long', ttl: 3_600_000, limit: 1_000_000 },
+          ];
+        }
         const global = rl.global ?? {};
         // Named throttlers used by @Throttle({ short|medium|long }).
         // Route decorators still override ttl/limit per endpoint (#79, #87).
