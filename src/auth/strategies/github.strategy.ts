@@ -32,15 +32,21 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     profile: any,
     done: (err: any, user?: any) => void,
   ): Promise<any> {
-    const email =
-      profile.emails?.find((e: any) => e.primary)?.value ??
-      profile.emails?.[0]?.value;
+    const emails: any[] = Array.isArray(profile.emails) ? profile.emails : [];
+    // Prefer primary verified, then any verified (#149)
+    const verified =
+      emails.find((e) => e?.primary && e?.verified) ??
+      emails.find((e) => e?.verified) ??
+      null;
+    const email = verified?.value ?? emails.find((e) => e?.primary)?.value ?? emails[0]?.value;
+    const emailVerified = Boolean(verified?.value);
 
     try {
       const user = await this.authService.findOrCreateOAuthUser({
         provider: 'github',
         providerId: String(profile.id),
         email,
+        emailVerified,
         name: profile.displayName || profile.username,
         avatarUrl: profile.photos?.[0]?.value,
       });
@@ -48,7 +54,12 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     } catch (err) {
       // Surface policy failures to the callback as a stable redirect reason (#88)
       if (err instanceof ForbiddenException) {
-        done(null, { oauthError: 'registration_disabled' });
+        const msg = (err as any).message ?? '';
+        done(null, {
+          oauthError: String(msg).includes('verified')
+            ? 'email_unverified'
+            : 'registration_disabled',
+        });
         return;
       }
       if (err instanceof ConflictException) {
