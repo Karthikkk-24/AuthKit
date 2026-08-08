@@ -1198,6 +1198,14 @@ export class AuthService {
     return found;
   }
 
+  /** Constant-time compare for equal-length hex digests; fail closed on mismatch (#152). */
+  private timingSafeEqualHex(a: string, b: string): boolean {
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    if (left.length !== right.length) return false;
+    return crypto.timingSafeEqual(left, right);
+  }
+
   /**
    * Atomically remove one backup-code digest if present (#117).
    * Returns true when this caller won the claim.
@@ -1392,7 +1400,9 @@ export class AuthService {
     const storedHash = await redis.get(key);
     if (!storedHash) throw new UnauthorizedException('Invalid MFA code');
     const hash = crypto.createHash('sha256').update(code).digest('hex');
-    if (hash !== storedHash) throw new UnauthorizedException('Invalid MFA code');
+    if (!this.timingSafeEqualHex(hash, storedHash)) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
     await redis.del(key);
     return true;
   }
