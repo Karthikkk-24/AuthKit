@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma/prisma.service';
@@ -37,6 +38,155 @@ export class ApiKeyService {
     });
   }
 
+  /**
+   * Cap API key scopes to the creator's effective permissions (#113).
+   * Mirrors PermissionsGuard matching rules for resource:action scopes.
+   */
+  private async assertScopesWithinUserPermissions(
+    userId: string,
+    scopes: string[],
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: {
+          include: {
+            permissions: true,
+            parent: { include: { permissions: true } },
+          },
+        },
+      },
+    });
+    if (!user?.role) {
+      throw new ForbiddenException('Cannot create API key without a role');
+    }
+
+    const rolePerms = this.collectRolePermissions(user.role);
+    const overrides = await this.prisma.userPermission.findMany({
+      where: { userId },
+      select: { action: true, resource: true, effect: true },
+    });
+    const denies = overrides.filter((o) => o.effect === 'deny');
+    const grants = overrides.filter((o) => o.effect === 'grant');
+    const allPerms = [
+      ...rolePerms,
+      ...grants.map((g) => ({ action: g.action, resource: g.resource })),
+    ];
+
+    const writeActions = new Set([
+      'create',
+      'update',
+      'delete',
+      'revoke',
+      'lock',
+      'export',
+      'assign',
+    ]);
+
+    for (const raw of scopes) {
+      const scope = raw.toLowerCase();
+
+      const exceeds = (action: string, resource: string) => {
+        const req = { action, resource };
+        if (
+          denies.some(
+            (d) =>
+              (d.action === action || d.action === '*') &&
+              (d.resource === resource || d.resource === '*'),
+          )
+        ) {
+          return true;
+        }
+        return !this.isPermissionGranted(allPerms, req);
+      };
+
+      if (scope === 'admin' || scope === '*:*' || scope === '*') {
+        if (exceeds('*', '*')) {
+          throw new BadRequestException(
+            `Scope "${raw}" exceeds your permissions`,
+          );
+        }
+        continue;
+      }
+
+      if (scope === 'read') {
+        if (
+          !allPerms.some(
+            (p) => p.action === 'read' || p.action === '*',
+          )
+        ) {
+          throw new BadRequestException(
+            `Scope "${raw}" exceeds your permissions`,
+          );
+        }
+        continue;
+      }
+
+      if (scope === 'write') {
+        if (
+          !allPerms.some(
+            (p) => writeActions.has(p.action) || p.action === '*',
+          )
+        ) {
+          throw new BadRequestException(
+            `Scope "${raw}" exceeds your permissions`,
+          );
+        }
+        continue;
+      }
+
+      const colon = scope.indexOf(':');
+      if (colon <= 0) {
+        throw new BadRequestException(`Invalid API key scope: ${raw}`);
+      }
+      const resource = scope.slice(0, colon);
+      const action = scope.slice(colon + 1);
+
+      if (action === 'manage' || action === '*') {
+        if (exceeds('*', resource === '*' ? '*' : resource)) {
+          throw new BadRequestException(
+            `Scope "${raw}" exceeds your permissions`,
+          );
+        }
+        continue;
+      }
+
+      if (exceeds(action, resource === '*' ? '*' : resource)) {
+        throw new BadRequestException(
+          `Scope "${raw}" exceeds your permissions`,
+        );
+      }
+    }
+  }
+
+  private collectRolePermissions(
+    role: any,
+    visited = new Set<string>(),
+  ): Array<{ action: string; resource: string }> {
+    if (!role || visited.has(role.id)) return [];
+    visited.add(role.id);
+    const perms: Array<{ action: string; resource: string }> = [
+      ...(role.permissions ?? []),
+    ];
+    if (role.parent) {
+      perms.push(...this.collectRolePermissions(role.parent, visited));
+    }
+    return perms;
+  }
+
+  private isPermissionGranted(
+    perms: Array<{ action: string; resource: string }>,
+    req: { action: string; resource: string },
+  ): boolean {
+    return perms.some(
+      (p) =>
+        (p.action === req.action && p.resource === req.resource) ||
+        (p.action === '*' && p.resource === req.resource) ||
+        (p.action === req.action && p.resource === '*') ||
+        (p.action === '*' && p.resource === '*'),
+    );
+  }
+
   private generateKey(): { raw: string; prefix: string; hashed: string } {
     const raw = `ak_${crypto.randomBytes(32).toString('hex')}`;
     const prefix = raw.slice(0, 8);
@@ -54,6 +204,18 @@ export class ApiKeyService {
     req: any,
   ) {
     this.assertFeatureEnabled();
+
+    // Deny-by-default (#113): empty scopes previously inherited full RBAC.
+    const scopes = Array.isArray(dto.scopes)
+      ? dto.scopes.map((s) => String(s).trim()).filter((s) => s.length > 0)
+      : [];
+    if (scopes.length === 0) {
+      throw new BadRequestException(
+        'API key scopes must be a non-empty list (e.g. ["users:read"])',
+      );
+    }
+    await this.assertScopesWithinUserPermissions(userId, scopes);
+
     const { raw, prefix, hashed } = this.generateKey();
     const expiresAt = dto.expiresIn
       ? new Date(Date.now() + dto.expiresIn * 86_400_000)
@@ -65,7 +227,7 @@ export class ApiKeyService {
         name: dto.name,
         keyHash: hashed,
         prefix,
-        scopes: dto.scopes ?? [],
+        scopes,
         expiresAt,
       },
     });
@@ -75,7 +237,7 @@ export class ApiKeyService {
       userId,
       resourceId: apiKey.id,
       resourceType: 'apikey',
-      metadata: { name: dto.name, scopes: dto.scopes },
+      metadata: { name: dto.name, scopes },
       ip: req?.ip,
       success: true,
     });

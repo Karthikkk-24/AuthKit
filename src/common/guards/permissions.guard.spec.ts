@@ -78,7 +78,7 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(context as any)).resolves.toBe(true);
   });
 
-  it('treats empty API key scopes as unrestricted (#66 legacy)', async () => {
+  it('denies API keys with empty scopes (#113)', async () => {
     const { guard, context } = makeGuard({
       required: [{ action: 'create', resource: 'users' }],
       user: {
@@ -88,7 +88,9 @@ describe('PermissionsGuard', () => {
         apiKeyScopes: [],
       },
     });
-    await expect(guard.canActivate(context as any)).resolves.toBe(true);
+    await expect(guard.canActivate(context as any)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('rejects missing user', async () => {
