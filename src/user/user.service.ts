@@ -292,9 +292,15 @@ export class UserService {
   async softDelete(userId: string, adminId: string, req: any) {
     await this.assertCanManageUser(adminId, userId, 'delete');
 
+    // Free unique email / OAuth ids so the address can be re-registered (#114).
     await this.prisma.user.update({
       where: { id: userId },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        email: `deleted+${userId}@deleted.invalid`,
+        googleId: null,
+        githubId: null,
+      },
     });
 
     // Revoke all sessions
@@ -446,7 +452,13 @@ export class UserService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
-        data: { deletedAt: new Date() },
+        // Free unique email / OAuth ids for re-registration (#114).
+        data: {
+          deletedAt: new Date(),
+          email: `deleted+${userId}@deleted.invalid`,
+          googleId: null,
+          githubId: null,
+        },
       }),
       this.prisma.session.updateMany({
         where: { userId, isRevoked: false },

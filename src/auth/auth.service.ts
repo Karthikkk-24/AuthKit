@@ -98,12 +98,22 @@ export class AuthService {
       }
     }
 
-    // Check existing user
+    // Check existing user — soft-deleted rows must not block re-registration (#114).
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (existing) {
-      throw new ConflictException('Email is already registered');
+      if (!existing.deletedAt) {
+        throw new ConflictException('Email is already registered');
+      }
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          email: `deleted+${existing.id}@deleted.invalid`,
+          googleId: null,
+          githubId: null,
+        },
+      });
     }
 
     // Validate password strength
@@ -1050,12 +1060,24 @@ export class AuthService {
       });
 
       if (existingByEmail) {
-        // Do NOT silently link OAuth to an existing password/email account.
-        // Silent email-based linking enables account takeover if an attacker
-        // controls an OAuth identity for the victim's email address.
-        throw new ConflictException(
-          `An account with this email already exists. Sign in with your existing credentials instead of linking via ${profile.provider} automatically.`,
-        );
+        if (existingByEmail.deletedAt) {
+          // Soft-deleted rows must not block OAuth re-provisioning (#114).
+          await this.prisma.user.update({
+            where: { id: existingByEmail.id },
+            data: {
+              email: `deleted+${existingByEmail.id}@deleted.invalid`,
+              googleId: null,
+              githubId: null,
+            },
+          });
+        } else {
+          // Do NOT silently link OAuth to an existing password/email account.
+          // Silent email-based linking enables account takeover if an attacker
+          // controls an OAuth identity for the victim's email address.
+          throw new ConflictException(
+            `An account with this email already exists. Sign in with your existing credentials instead of linking via ${profile.provider} automatically.`,
+          );
+        }
       }
     }
 
