@@ -13,6 +13,7 @@ describe('UserService.updateProfile (#104)', () => {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   beforeEach(() => {

@@ -25,12 +25,14 @@ describe('UserService hierarchy guards (#63)', () => {
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const config = {};
     const passwords = {};
+    const auth = {};
     const webhooks = { dispatch: jest.fn().mockResolvedValue(undefined) };
     const service = new UserService(
       prisma as any,
       audit as any,
       config as any,
       passwords as any,
+      auth as any,
       webhooks as any,
     );
     return { service, prisma, audit };
