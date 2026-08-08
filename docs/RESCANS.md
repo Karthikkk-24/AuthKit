@@ -12,3 +12,10 @@ records tooling status so meta tickets can close without re-filing the backlog.
 - **Manual + AI OWASP/flow:** net-new children filed in that wave (not re-opened here)
 
 Closed findings from earlier waves (#60–#98) remain fixed and were not re-opened.
+
+### Rescan #4 (#131)
+
+- **Commit / context:** second full pass after filing #104–#123 (`main` @ `f26ca26`)
+- **Snyk OSS:** highs still driven by stale `admin/package-lock.json` (fixed in #121 / PR #204)
+- **Snyk Code:** still `SNYK-CODE-0005`
+- **Net-new children:** filed separately in that wave; prior #104–#123 not re-filed
