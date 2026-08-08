@@ -20,6 +20,6 @@ describe('escapeCsvField (#156)', () => {
   });
 
   it('does not treat JSON objects as formulas (leading brace is safe)', () => {
-    expect(escapeCsvField({ note: '=cmd' })).toBe(`"{\"note\":\"=cmd\"}"`);
+    expect(escapeCsvField({ note: '=cmd' })).toBe(`"{""note"":""=cmd""}"`);
   });
 });
