@@ -1184,6 +1184,22 @@ export class AuthService {
     return found;
   }
 
+  /**
+   * Atomically remove one backup-code digest if present (#117).
+   * Returns true when this caller won the claim.
+   */
+  private async claimBackupCode(userId: string, hash: string): Promise<boolean> {
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "MfaCredential"
+      SET "backupCodes" = array_remove("backupCodes", ${hash}),
+          "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+        AND type = CAST('TOTP' AS "MfaType")
+        AND ${hash} = ANY("backupCodes")
+    `;
+    return Number(updated) === 1;
+  }
+
   async setupTotp(userId: string, currentMfaCode?: string) {
     if (!this.isMfaMethodAllowed('totp')) {
       throw new BadRequestException('TOTP MFA is disabled');
@@ -1291,19 +1307,13 @@ export class AuthService {
       const hash = this.hashBackupCode(code);
       // Legacy unsalted SHA-256 digests from before #148
       const legacyHash = crypto.createHash('sha256').update(code).digest('hex');
-      let idx = this.findBackupCodeIndex(cred.backupCodes, hash);
-      if (idx === -1) {
-        idx = this.findBackupCodeIndex(cred.backupCodes, legacyHash);
+      // Atomic claim so two parallel logins cannot both accept the same code (#117).
+      if (
+        !(await this.claimBackupCode(userId, hash)) &&
+        !(await this.claimBackupCode(userId, legacyHash))
+      ) {
+        throw new UnauthorizedException('Invalid backup code');
       }
-      if (idx === -1) throw new UnauthorizedException('Invalid backup code');
-
-      // Single-use: remove the code
-      const remaining = [...cred.backupCodes];
-      remaining.splice(idx, 1);
-      await this.prisma.mfaCredential.update({
-        where: { userId_type: { userId, type: 'TOTP' } },
-        data: { backupCodes: remaining },
-      });
       return true;
     }
 
