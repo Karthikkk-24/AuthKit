@@ -221,7 +221,7 @@ GET /api/v1/auth/github
 ### MFA
 ```
 POST /api/v1/auth/mfa/totp/setup    → { qrCode, secret }
-POST /api/v1/auth/mfa/totp/verify   → { code }
+POST /api/v1/auth/mfa/totp/enable   → { code }
 POST /api/v1/auth/mfa/email/send
 POST /api/v1/auth/mfa/email/verify  → { code }
 ```
