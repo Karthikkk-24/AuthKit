@@ -6,15 +6,21 @@ import {
   backendUrl,
 } from '@/lib/auth-cookies';
 import { assertSameOrigin } from '@/lib/csrf';
+import { assertAllowedBackendPath } from '@/lib/bff-allowlist';
 
 /**
- * Same-origin BFF proxy (#24, #81). Forwards dashboard API calls to Nest with the
- * httpOnly access token attached as Authorization, so the browser never
- * needs localStorage. Mutating methods require same-origin Origin/Referer.
+ * Same-origin BFF proxy (#24, #81, #135). Forwards allowlisted dashboard API
+ * calls to Nest with the httpOnly access token attached as Authorization.
+ * Mutating methods require same-origin Origin/Referer.
  */
 async function proxy(req: NextRequest, pathSegments: string[]) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
+
+  const pathError = assertAllowedBackendPath(pathSegments);
+  if (pathError) {
+    return NextResponse.json({ message: pathError }, { status: 403 });
+  }
 
   const access = req.cookies.get(ACCESS_COOKIE)?.value;
   if (!access) {
