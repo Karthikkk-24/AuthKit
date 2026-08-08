@@ -1,4 +1,3 @@
-import { ConflictException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
 describe('register frees soft-deleted email (#114)', () => {
@@ -26,6 +25,9 @@ describe('register frees soft-deleted email (#114)', () => {
       hash: jest.fn().mockResolvedValue('hash'),
       isPwned: jest.fn(),
     };
+    const email = {
+      sendAccountAlreadyRegistered: jest.fn().mockResolvedValue(undefined),
+    };
     const config = {
       get: jest.fn((key: string) => {
         if (key === 'auth') {
@@ -44,12 +46,12 @@ describe('register frees soft-deleted email (#114)', () => {
       passwords as any,
       {} as any,
       {} as any,
-      {} as any,
+      email as any,
       audit as any,
       config as any,
       webhooks as any,
     );
-    return { service, prisma };
+    return { service, prisma, email, audit };
   }
 
   it('renames soft-deleted email then creates a new user', async () => {
@@ -73,18 +75,25 @@ describe('register frees soft-deleted email (#114)', () => {
     expect(prisma.user.create).toHaveBeenCalled();
   });
 
-  it('still conflicts for active emails', async () => {
-    const { service, prisma } = makeService({
+  it('returns generic success for active emails without creating (#116)', async () => {
+    const { service, prisma, email, audit } = makeService({
       id: 'live',
       email: 'a@x.com',
+      name: 'Live',
       deletedAt: null,
     });
-    await expect(
-      service.register(
-        { email: 'a@x.com', password: 'Password1!', name: 'A' } as any,
-        {},
-      ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    const result = await service.register(
+      { email: 'a@x.com', password: 'Password1!', name: 'A' } as any,
+      {},
+    );
+    expect(result.message).toMatch(/Registration successful/);
     expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(email.sendAccountAlreadyRegistered).toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        metadata: { reason: 'email_exists' },
+      }),
+    );
   });
 });
