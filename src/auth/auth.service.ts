@@ -153,7 +153,11 @@ export class AuthService {
       name: user.name,
     });
 
-    return { message: 'Registration successful. Please check your email to verify your account.' };
+    return {
+      message: this.isEmailVerificationEnforced()
+        ? 'Registration successful. Please check your email to verify your account.'
+        : 'Registration successful.',
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -351,13 +355,18 @@ export class AuthService {
   }
 
   /**
-   * Email verification is enforced only when both the auth requirement and the
-   * feature flag are on (#93). Toggling features.emailVerification off must not
-   * lock users out while requireEmailVerification stays true.
+   * Email verification is enforced only when the auth requirement, feature flag,
+   * and mailer are all on (#93, #112). Enforcing while `email.enabled` is false
+   * locks users out (verification mail never sends).
    */
   private isEmailVerificationEnforced(): boolean {
     const reg = this.config.get<any>('auth')?.registration ?? {};
-    return Boolean(reg.requireEmailVerification) && this.config.isFeatureEnabled('emailVerification');
+    const emailEnabled = Boolean(this.config.get<any>('email')?.enabled);
+    return (
+      Boolean(reg.requireEmailVerification) &&
+      this.config.isFeatureEnabled('emailVerification') &&
+      emailEnabled
+    );
   }
 
   /** Shared gate for password / magic-link session mint (#89, #93). */
