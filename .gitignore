@@ -2,6 +2,9 @@
 node_modules/
 .pnp
 .pnp.js
+# Workspace uses pnpm — do not commit npm lockfiles (#121)
+package-lock.json
+**/package-lock.json
 
 # Build outputs
 dist/
