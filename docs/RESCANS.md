@@ -19,3 +19,10 @@ Closed findings from earlier waves (#60–#98) remain fixed and were not re-open
 - **Snyk OSS:** highs still driven by stale `admin/package-lock.json` (fixed in #121 / PR #204)
 - **Snyk Code:** still `SNYK-CODE-0005`
 - **Net-new children:** filed separately in that wave; prior #104–#123 not re-filed
+
+### Rescan #5 (#141)
+
+- **Commit / context:** after PR #132 (#124 MFA path bypass fix), `main` @ `b0e5834`
+- **Snyk OSS / pnpm:** stale admin lockfile + highs — remediated in #121 / PR #204; verified in #140
+- **Snyk Code:** still `SNYK-CODE-0005`
+- **Net-new children:** #133–#140 (actionable work tracked separately)
