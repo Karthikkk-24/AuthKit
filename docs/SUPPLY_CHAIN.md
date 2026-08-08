@@ -44,3 +44,11 @@ Re-checked after #121 / PR #204:
 - `admin/package-lock.json` absent; pnpm resolves `next@16.3.0`
 - `pnpm audit --prod`: no criticals; remaining highs are accepted (typeorm peer via terminus, Next/babel/sharp paths) — see above
 - Snyk Code still blocked (`SNYK-CODE-0005`) until enabled in org UI
+
+### Rescan #6 verification (#153)
+
+Re-checked after #121 / #140:
+
+- No `admin/package-lock.json`; Next remains `16.3.0` via pnpm
+- Critical gate clean; remaining highs accepted as documented above
+- Snyk Code still requires org enablement (`SNYK-CODE-0005`)
