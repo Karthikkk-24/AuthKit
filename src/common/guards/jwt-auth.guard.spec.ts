@@ -105,6 +105,43 @@ describe('JwtAuthGuard', () => {
     });
   });
 
+  it('does not copy forged roles/role claims from a valid JWT (#158)', async () => {
+    const guard = makeGuard({
+      payload: {
+        sub: 'user-123',
+        email: 'a@b.com',
+        roleId: 'role-user',
+        roleName: 'user',
+        sessionId: 'sess-1',
+        roles: ['superadmin'],
+        role: { name: 'superadmin' },
+        permissions: ['*'],
+        evil: true,
+      },
+      user: {
+        id: 'user-123',
+        email: 'a@b.com',
+        roleId: 'role-user',
+        isLocked: false,
+        deletedAt: null,
+        role: { name: 'user' },
+      },
+    });
+    const ctx = makeContext('Bearer tok');
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(ctx.__request.user).toEqual({
+      id: 'user-123',
+      email: 'a@b.com',
+      roleId: 'role-user',
+      roleName: 'user',
+      sessionId: 'sess-1',
+      isApiKeyAuth: false,
+    });
+    expect(ctx.__request.user.roles).toBeUndefined();
+    expect(ctx.__request.user.role).toBeUndefined();
+    expect(ctx.__request.user.evil).toBeUndefined();
+  });
+
   it('uses DB roleName over stale JWT claim after demotion (#107)', async () => {
     const guard = makeGuard({
       payload: {

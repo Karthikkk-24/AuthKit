@@ -29,14 +29,15 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new ForbiddenException('Unauthorized');
 
-    const userRole = user.role?.name ?? user.roleName ?? user.role;
+    // Only trust roleName set by JwtAuthGuard from the DB — never JWT-shaped
+    // `roles` arrays or nested `role` objects (#158).
+    const userRole = user.roleName;
     if (typeof userRole !== 'string' || !(userRole in ROLE_RANK)) {
       throw new ForbiddenException('Access denied. Unknown role.');
     }
 
     const userRank = ROLE_RANK[userRole];
     const hasRole = requiredRoles.some((role) => {
-      if (user.roles?.includes(role)) return true;
       const requiredRank = ROLE_RANK[role];
       if (requiredRank === undefined) return userRole === role;
       // Hierarchical: caller rank must be >= required rank

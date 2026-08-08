@@ -35,4 +35,27 @@ describe('RolesGuard hierarchy (#39)', () => {
     (reflector.getAllAndOverride as jest.Mock).mockReturnValue(undefined);
     expect(guard.canActivate(ctx({ roleName: 'guest' }))).toBe(true);
   });
+
+  it('ignores forged roles[] / role object and uses roleName only (#158)', () => {
+    (reflector.getAllAndOverride as jest.Mock).mockReturnValue(['admin']);
+    expect(() =>
+      guard.canActivate(
+        ctx({
+          roleName: 'user',
+          roles: ['superadmin', 'admin'],
+          role: { name: 'superadmin' },
+        }),
+      ),
+    ).toThrow(ForbiddenException);
+
+    expect(
+      guard.canActivate(
+        ctx({
+          roleName: 'admin',
+          roles: ['user'],
+          role: { name: 'user' },
+        }),
+      ),
+    ).toBe(true);
+  });
 });
