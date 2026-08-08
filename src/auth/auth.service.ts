@@ -882,21 +882,29 @@ export class AuthService {
 
     const newHash = await this.passwordService.hash(dto.newPassword);
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    // Claim the reset token atomically before mutating credentials (#108).
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.passwordReset.updateMany({
+        where: {
+          id: record.id,
+          usedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        data: { usedAt: new Date() },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException('Token already used or expired');
+      }
+
+      await tx.user.update({
         where: { id: record.userId },
         data: { passwordHash: newHash },
-      }),
-      this.prisma.passwordReset.update({
-        where: { id: record.id },
-        data: { usedAt: new Date() },
-      }),
-      // Revoke all sessions (force re-login everywhere)
-      this.prisma.session.updateMany({
+      });
+      await tx.session.updateMany({
         where: { userId: record.userId },
         data: { isRevoked: true, revokedAt: new Date() },
-      }),
-    ]);
+      });
+    });
 
     await this.audit.log({
       action: 'auth.password_reset',
@@ -1477,10 +1485,18 @@ export class AuthService {
 
     this.assertEmailVerifiedForLogin(record.user);
 
-    await this.prisma.emailVerification.update({
-      where: { id: record.id },
+    const claimed = await this.prisma.emailVerification.updateMany({
+      where: {
+        id: record.id,
+        purpose: 'magic_link',
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
       data: { usedAt: new Date() },
     });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('Magic link already used or expired');
+    }
 
     return record.user;
   }
@@ -1597,10 +1613,7 @@ export class AuthService {
     // exchange code so a typo does not force a full OAuth restart (#60 review).
     if (mfaCode) {
       await this.verifyMfaWithFallback(user.id, mfaCode);
-      await this.prisma.emailVerification.update({
-        where: { id: record.id },
-        data: { usedAt: new Date() },
-      });
+      await this.claimOneTimeEmailToken(record.id, 'oauth_exchange');
       return this.createTokens(user, req);
     }
 
@@ -1610,13 +1623,29 @@ export class AuthService {
 
     // Always consume the one-time exchange code once we know the outcome path
     // (tokens, MFA challenge, or setup). Prevents replay of the oauth code.
-    await this.prisma.emailVerification.update({
-      where: { id: record.id },
-      data: { usedAt: new Date() },
-    });
+    await this.claimOneTimeEmailToken(record.id, 'oauth_exchange');
 
     if (mfa.kind !== 'ok') return mfa.response;
     return this.createTokens(user, req);
+  }
+
+  /** Atomically mark an EmailVerification one-time token used (#108). */
+  private async claimOneTimeEmailToken(
+    id: string,
+    purpose: string,
+  ): Promise<void> {
+    const claimed = await this.prisma.emailVerification.updateMany({
+      where: {
+        id,
+        purpose,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { usedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('Token already used or expired');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
