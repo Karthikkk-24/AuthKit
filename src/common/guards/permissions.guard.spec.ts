@@ -137,6 +137,8 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(context as any)).resolves.toBe(true);
     expect(prisma.role.findUnique).toHaveBeenCalledTimes(3);
   });
+
+  it('rejects missing user', async () => {
     const reflector = {
       getAllAndOverride: jest
         .fn()
