@@ -52,3 +52,11 @@ Re-checked after #121 / #140:
 - No `admin/package-lock.json`; Next remains `16.3.0` via pnpm
 - Critical gate clean; remaining highs accepted as documented above
 - Snyk Code still requires org enablement (`SNYK-CODE-0005`)
+
+### Rescan #7 verification (#160)
+
+Re-checked after #121–#153 documentation chain:
+
+- Stale npm lockfile remains deleted; Next `16.3.0` via pnpm
+- Direct bumps + overrides from #121 still in effect
+- Snyk Code still blocked for org `kkshettigar24` (`SNYK-CODE-0005`) — enable in Snyk UI to close the SAST gap
