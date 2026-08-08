@@ -46,9 +46,9 @@ export class WebhookService {
   async dispatch(event: WebhookEventType, payload: Record<string, any>) {
     if (!this.isDispatchEnabled()) return;
 
-    // Tenant isolation (#61): only deliver to endpoints owned by the event
-    // subject. Without this filter every active subscriber receives every
-    // matching event platform-wide (cross-tenant leak).
+    // Tenant isolation (#61) + admin platform audience (#126):
+    // deliver to the event subject's own endpoints, and also to endpoints
+    // owned by admin/superadmin (the only roles that can register via the API).
     const ownerId = payload?.userId;
     if (!ownerId || typeof ownerId !== 'string') {
       this.logger.warn(
@@ -61,7 +61,15 @@ export class WebhookService {
       where: {
         isActive: true,
         events: { has: event },
-        userId: ownerId,
+        OR: [
+          { userId: ownerId },
+          {
+            user: {
+              deletedAt: null,
+              role: { name: { in: ['admin', 'superadmin'] } },
+            },
+          },
+        ],
       },
     });
 

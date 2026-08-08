@@ -18,7 +18,7 @@ describe('WebhookService.dispatch tenant isolation (#61)', () => {
     return { service, prisma };
   }
 
-  it('filters endpoints by payload.userId (event subject)', async () => {
+  it('filters endpoints by subject OR admin/superadmin owners (#61, #126)', async () => {
     const { service, prisma } = makeService();
 
     await service.dispatch('user.login', { userId: 'user-a', email: 'a@x.com' });
@@ -27,7 +27,15 @@ describe('WebhookService.dispatch tenant isolation (#61)', () => {
       where: {
         isActive: true,
         events: { has: 'user.login' },
-        userId: 'user-a',
+        OR: [
+          { userId: 'user-a' },
+          {
+            user: {
+              deletedAt: null,
+              role: { name: { in: ['admin', 'superadmin'] } },
+            },
+          },
+        ],
       },
     });
   });
