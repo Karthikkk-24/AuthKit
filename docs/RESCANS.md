@@ -26,3 +26,9 @@ Closed findings from earlier waves (#60–#98) remain fixed and were not re-open
 - **Snyk OSS / pnpm:** stale admin lockfile + highs — remediated in #121 / PR #204; verified in #140
 - **Snyk Code:** still `SNYK-CODE-0005`
 - **Net-new children:** #133–#140 (actionable work tracked separately)
+
+### Rescan #6 (#154)
+
+- **Commit / context:** full rescan of `main` @ `b0e5834` (after #124/#132)
+- **Tooling:** Snyk OSS highs + stale admin lockfile (fixed #121); Snyk Code blocked; pnpm audit triaged
+- **Net-new children:** email OTP MFA, API key session equivalence, backup-code entropy, OAuth email trust, GitHub missing-email, config `__proto__`, non-constant-time OTP (#152), supply-chain (#153)
