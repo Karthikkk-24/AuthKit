@@ -1256,14 +1256,21 @@ export class AuthService {
       }
       const valid = await this.passwordService.verify(user.passwordHash, password);
       if (!valid) throw new UnauthorizedException('Incorrect password');
-    } else {
-      // OAuth-only / passwordless: step-up with current MFA factor (#92)
+    }
+
+    // Always require a current MFA factor when MFA is enabled (#109).
+    // Password alone must not drop MFA; OAuth-only accounts only have this step (#92).
+    if (user.isMfaEnabled) {
       if (!mfaCode) {
         throw new BadRequestException(
-          'MFA code (TOTP, email OTP, or backup code) is required to disable MFA on passwordless accounts',
+          'MFA code (TOTP, email OTP, or backup code) is required to disable MFA',
         );
       }
       await this.verifyMfaWithFallback(userId, mfaCode);
+    } else if (!user.passwordHash) {
+      // Passwordless with MFA already off — nothing to disable; still require a code
+      // was the old path when MFA was on. If MFA is off, allow no-op style reject.
+      throw new BadRequestException('MFA is not enabled');
     }
 
     await this.prisma.$transaction([
