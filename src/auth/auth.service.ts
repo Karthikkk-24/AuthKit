@@ -204,6 +204,16 @@ export class AuthService {
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
+    // Invalidate prior unused verification tokens for this user (#129).
+    await this.prisma.emailVerification.updateMany({
+      where: {
+        userId,
+        purpose: 'email_verification',
+        usedAt: null,
+      },
+      data: { usedAt: new Date() },
+    });
+
     await this.prisma.emailVerification.create({
       data: {
         userId,
@@ -903,6 +913,12 @@ export class AuthService {
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
+    // Invalidate prior unused reset tokens (#129).
+    await this.prisma.passwordReset.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
     await this.prisma.passwordReset.create({
       data: {
         userId: user.id,
@@ -1589,6 +1605,16 @@ export class AuthService {
 
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Invalidate prior unused magic-link tokens (#129).
+    await this.prisma.emailVerification.updateMany({
+      where: {
+        userId: user.id,
+        purpose: 'magic_link',
+        usedAt: null,
+      },
+      data: { usedAt: new Date() },
+    });
 
     await this.prisma.emailVerification.create({
       data: {
