@@ -823,6 +823,8 @@ export class AuthService {
       data: { isRevoked: true, revokedAt: new Date() },
     });
 
+    await this.revokeUserApiKeys(userId);
+
     await this.audit.log({
       action: 'auth.logout_all',
       userId,
@@ -832,6 +834,14 @@ export class AuthService {
     });
 
     return { message: 'Logged out from all devices' };
+  }
+
+  /** Revoke all active API keys for a user (#143). */
+  private async revokeUserApiKeys(userId: string): Promise<void> {
+    await this.prisma.apiKey.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date() },
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -913,6 +923,11 @@ export class AuthService {
         where: { userId: record.userId },
         data: { isRevoked: true, revokedAt: new Date() },
       });
+      // Password recovery must kill API-key footholds too (#143).
+      await tx.apiKey.updateMany({
+        where: { userId: record.userId, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      });
     });
 
     await this.audit.log({
@@ -959,19 +974,27 @@ export class AuthService {
         },
         data: { isRevoked: true, revokedAt: new Date() },
       }),
+      // API keys are long-lived credentials — revoke on password change (#143).
+      this.prisma.apiKey.updateMany({
+        where: { userId, isRevoked: false },
+        data: { isRevoked: true, revokedAt: new Date() },
+      }),
     ]);
 
     await this.audit.log({
       action: 'auth.password_changed',
       userId,
       ip: req?.ip,
-      metadata: { revokedOtherSessions: true },
+      metadata: { revokedOtherSessions: true, revokedApiKeys: true },
       success: true,
     });
 
     this.emitWebhook('user.password_changed', { userId });
 
-    return { message: 'Password changed successfully. Other sessions have been signed out.' };
+    return {
+      message:
+        'Password changed successfully. Other sessions and API keys have been revoked.',
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────
