@@ -93,7 +93,7 @@
       "enabled": true,
       "maxAttempts": 5,
       "lockDurationMinutes": 30,
-      "progressiveDelay": true
+      "progressiveDelay": false
     },
     "cors": {
       "enabled": true,
