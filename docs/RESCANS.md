@@ -32,3 +32,9 @@ Closed findings from earlier waves (#60–#98) remain fixed and were not re-open
 - **Commit / context:** full rescan of `main` @ `b0e5834` (after #124/#132)
 - **Tooling:** Snyk OSS highs + stale admin lockfile (fixed #121); Snyk Code blocked; pnpm audit triaged
 - **Net-new children:** email OTP MFA, API key session equivalence, backup-code entropy, OAuth email trust, GitHub missing-email, config `__proto__`, non-constant-time OTP (#152), supply-chain (#153)
+
+### Rescan #7 (#161)
+
+- **Commit / context:** `main` after prior P3 wave; prior open backlog #104–#154 re-verified (not re-filed)
+- **Tooling:** Snyk OSS / pnpm — see #160 + `docs/SUPPLY_CHAIN.md`; Snyk Code still `SNYK-CODE-0005`
+- **Net-new children this pass:** #155–#160 (P2–P4); actionable P3s #156–#159 fixed separately
