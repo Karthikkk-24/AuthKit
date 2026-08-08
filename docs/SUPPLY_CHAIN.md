@@ -36,3 +36,11 @@ truth), bumping Nest/axios/nodemailer, and extending `pnpm.overrides`.
 - **Snyk Code**: still blocked for org `kkshettigar24` (`SNYK-CODE-0005`) — enable in Snyk UI
 
 Re-run audits after each Nest/Next major upgrade; prefer direct bumps over long-lived overrides.
+
+### Rescan #5 verification (#140)
+
+Re-checked after #121 / PR #204:
+
+- `admin/package-lock.json` absent; pnpm resolves `next@16.3.0`
+- `pnpm audit --prod`: no criticals; remaining highs are accepted (typeorm peer via terminus, Next/babel/sharp paths) — see above
+- Snyk Code still blocked (`SNYK-CODE-0005`) until enabled in org UI
