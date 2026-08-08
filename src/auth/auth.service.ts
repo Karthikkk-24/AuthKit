@@ -430,7 +430,7 @@ export class AuthService {
     this.assertEmailVerifiedForLogin(user);
 
     // Shared MFA gate (#23, #60). Password login re-submits credentials with
-    // mfaCode, so a bare `{ requiresMfa, userId }` challenge is enough.
+    // mfaCode; OAuth/magic-link use opaque mfaToken (#76, #136).
     const mfa = await this.applyMfaGate(user, dto.mfaCode, {
       challengeStyle: 'password',
     });
@@ -526,7 +526,6 @@ export class AuthService {
         response: {
           requiresMfa: true,
           mfaToken,
-          userId: user.id,
           message:
             'MFA code required. Complete sign-in via POST /auth/mfa/complete with mfaToken and mfaCode. For email MFA, request a code via POST /auth/mfa/email/challenge.',
         },
