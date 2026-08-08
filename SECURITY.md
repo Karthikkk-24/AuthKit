@@ -105,13 +105,14 @@ Prefer `Lax` + Origin checks unless you fully control all auth entry URLs on the
 - Multi-ORM switching (Prisma only)
 - Full OpenTelemetry distributed tracing (request IDs + optional Prometheus are available)
 
-## Supply chain (#82)
+## Supply chain (#82, #121)
 
 - CI (`security.yml`) hard-fails on **critical** `pnpm audit --prod` findings
 - High findings are reported (soft gate) and triaged via `pnpm.overrides` + direct bumps
 - Run locally: `pnpm audit --prod` / `pnpm audit:deps`
 - Snyk OSS: `snyk test --all-projects` (requires `snyk auth` or `SNYK_TOKEN`)
 - Snyk Code: enable for org `kkshettigar24` in the Snyk UI, then `snyk code test`
+- Rescan index: `docs/RESCANS.md`
 
 ## Safe defaults for deployers
 
