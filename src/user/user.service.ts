@@ -9,6 +9,7 @@ import { PrismaService } from '../database/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import { PasswordService } from '../auth/password.service';
+import { AuthService } from '../auth/auth.service';
 import { WebhookService, WebhookEventType } from '../webhook/webhook.service';
 import {
   assertActorOutranksTarget,
@@ -25,6 +26,7 @@ export class UserService {
     private readonly audit: AuditService,
     private readonly config: ConfigLoaderService,
     private readonly passwords: PasswordService,
+    private readonly auth: AuthService,
     private readonly webhooks: WebhookService,
   ) {}
 
@@ -433,7 +435,11 @@ export class UserService {
     return safeUser;
   }
 
-  async deleteAccount(userId: string, password: string | undefined, req: any) {
+  async deleteAccount(
+    userId: string,
+    opts: { password?: string; confirmationCode?: string },
+    req: any,
+  ) {
     if (!this.config.isFeatureEnabled('gdprTools')) {
       throw new ForbiddenException('GDPR data tools are disabled');
     }
@@ -441,13 +447,11 @@ export class UserService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.deletedAt) throw new NotFoundException('User not found');
 
-    // Password accounts must confirm with their password; OAuth-only accounts
-    // (no passwordHash) are authenticated by the JWT that authorized this call.
-    if (user.passwordHash) {
-      if (!password) throw new UnauthorizedException('Password is required to delete the account');
-      const valid = await this.passwords.verify(user.passwordHash, password);
-      if (!valid) throw new UnauthorizedException('Incorrect password');
-    }
+    // Password, MFA, or email confirmation — never JWT alone for OAuth (#130).
+    await this.auth.assertAccountDeletionStepUp(userId, {
+      password: opts.password,
+      confirmationCode: opts.confirmationCode,
+    });
 
     await this.prisma.$transaction([
       this.prisma.user.update({

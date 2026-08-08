@@ -73,10 +73,17 @@ export class UserController {
   @ApiOperation({ summary: 'Delete own account (GDPR erase)' })
   deleteMe(
     @CurrentUser() user: any,
-    @Body() body: { password?: string },
+    @Body() body: { password?: string; confirmationCode?: string },
     @Req() req: Request,
   ) {
-    return this.userService.deleteAccount(user.id, body?.password, req);
+    return this.userService.deleteAccount(
+      user.id,
+      {
+        password: body?.password,
+        confirmationCode: body?.confirmationCode,
+      },
+      req,
+    );
   }
 
   @Get()

@@ -274,6 +274,19 @@ export class AuthController {
     return this.authService.verifyEmailOtp(user.id, dto.code);
   }
 
+  @Throttle({ medium: { ttl: 900_000, limit: 5 } })
+  @UseGuards(JwtAuthGuard, RejectApiKeyGuard)
+  @Post('account/delete/challenge')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Send email OTP to confirm OAuth-only account deletion when MFA is not enrolled (#130)',
+  })
+  sendAccountDeletionChallenge(@CurrentUser() user: any) {
+    return this.authService.sendAccountDeletionChallenge(user.id);
+  }
+
   /**
    * Complete passwordless (OAuth / magic-link) MFA challenge (#60).
    * First-factor proof is the one-time mfaToken; second factor is mfaCode.

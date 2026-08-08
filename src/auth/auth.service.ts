@@ -1562,17 +1562,7 @@ export class AuthService {
     }
     if (!/^\d{6}$/.test(code)) throw new BadRequestException('Invalid code format');
 
-    const redis = this.redisClient;
-    if (!redis) throw new BadRequestException('Email MFA is temporarily unavailable');
-
-    const key = `${this.config.get<any>('redis')?.prefix ?? 'authkit:'}mfa:email:${userId}`;
-    const storedHash = await redis.get(key);
-    if (!storedHash) throw new UnauthorizedException('Code expired or not requested');
-
-    const hash = crypto.createHash('sha256').update(code).digest('hex');
-    if (hash !== storedHash) throw new UnauthorizedException('Invalid code');
-
-    await redis.del(key);
+    await this.verifyEmailOtpCodeOnly(userId, code);
 
     // Mark EMAIL MFA as verified/enabled as a side effect of proving control.
     await this.prisma.$transaction([
@@ -1585,6 +1575,57 @@ export class AuthService {
     ]);
 
     return { message: 'Email MFA verified' };
+  }
+
+  /**
+   * Step-up for OAuth-only self-delete (#130): MFA code when enrolled, else
+   * a one-shot email OTP (does not enable EMAIL MFA).
+   */
+  async assertAccountDeletionStepUp(
+    userId: string,
+    opts: { password?: string; confirmationCode?: string },
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) throw new NotFoundException('User not found');
+
+    if (user.passwordHash) {
+      if (!opts.password) {
+        throw new UnauthorizedException('Password is required to delete the account');
+      }
+      const valid = await this.passwordService.verify(user.passwordHash, opts.password);
+      if (!valid) throw new UnauthorizedException('Incorrect password');
+      return;
+    }
+
+    if (!opts.confirmationCode) {
+      throw new UnauthorizedException(
+        'Confirmation code is required to delete an OAuth account. Request one via POST /auth/account/delete/challenge, or use your MFA code if enrolled.',
+      );
+    }
+
+    if (user.isMfaEnabled) {
+      await this.verifyMfaWithFallback(userId, opts.confirmationCode);
+      return;
+    }
+
+    await this.verifyEmailOtpCodeOnly(userId, opts.confirmationCode);
+  }
+
+  /** Issue email OTP used as OAuth account-deletion step-up (#130). */
+  async sendAccountDeletionChallenge(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) throw new NotFoundException('User not found');
+    if (user.passwordHash) {
+      throw new BadRequestException(
+        'Password accounts confirm deletion with their password, not an email challenge',
+      );
+    }
+    if (user.isMfaEnabled) {
+      throw new BadRequestException(
+        'MFA is enabled — pass confirmationCode with your authenticator or backup code',
+      );
+    }
+    return this.issueEmailOtp(user);
   }
 
   // ─────────────────────────────────────────────────────────────────────
