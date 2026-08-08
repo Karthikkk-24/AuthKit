@@ -184,6 +184,7 @@
     "apiKeys": true,
     "webhooks": false,
     "gdprTools": true,
-    "pwnedPasswordCheck": false
+    "pwnedPasswordCheck": false,
+    "pwnedPasswordFailClosed": true
   }
 }
