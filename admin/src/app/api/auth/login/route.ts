@@ -6,6 +6,7 @@ import {
   cookieOptions,
   backendUrl,
 } from '@/lib/auth-cookies';
+import { assertSameOrigin } from '@/lib/csrf';
 
 /**
  * BFF login (#24, #105): exchange credentials with the Nest API and store tokens
@@ -13,6 +14,9 @@ import {
  * MFA-enrolled admins resubmit with `mfaCode` — forward it to Nest.
  */
 export async function POST(req: NextRequest) {
+  const csrf = assertSameOrigin(req);
+  if (csrf) return csrf;
+
   let body: { email?: string; password?: string; mfaCode?: string };
   try {
     body = await req.json();
