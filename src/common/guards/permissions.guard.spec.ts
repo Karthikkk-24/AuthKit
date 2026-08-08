@@ -93,7 +93,50 @@ describe('PermissionsGuard', () => {
     );
   });
 
-  it('rejects missing user', async () => {
+  it('walks more than one parent level for permissions (#118)', async () => {
+    const reflector = {
+      getAllAndOverride: jest
+        .fn()
+        .mockReturnValue([{ action: 'export', resource: 'audit' }]),
+    };
+    const prisma = {
+      role: {
+        findUnique: jest
+          .fn()
+          // child
+          .mockResolvedValueOnce({
+            id: 'child',
+            parentId: 'mid',
+            permissions: [],
+          })
+          // mid
+          .mockResolvedValueOnce({
+            id: 'mid',
+            parentId: 'root',
+            permissions: [],
+          })
+          // root
+          .mockResolvedValueOnce({
+            id: 'root',
+            parentId: null,
+            permissions: [{ action: 'export', resource: 'audit' }],
+          }),
+      },
+      userPermission: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const guard = new PermissionsGuard(reflector as any, prisma as any);
+    const context = {
+      getHandler: () => ({}),
+      getClass: () => ({}),
+      switchToHttp: () => ({
+        getRequest: () => ({
+          user: { id: 'u1', roleId: 'child', isApiKeyAuth: false },
+        }),
+      }),
+    };
+    await expect(guard.canActivate(context as any)).resolves.toBe(true);
+    expect(prisma.role.findUnique).toHaveBeenCalledTimes(3);
+  });
     const reflector = {
       getAllAndOverride: jest
         .fn()
