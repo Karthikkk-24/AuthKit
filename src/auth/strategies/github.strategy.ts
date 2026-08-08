@@ -3,6 +3,10 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-github2';
 import { ConfigLoaderService } from '../../config/config-loader.service';
 import { AuthService } from '../auth.service';
+import {
+  SignedCookieOAuthStateStore,
+  resolveOAuthStateSecret,
+} from '../oauth-state.store';
 
 @Injectable()
 export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
@@ -11,12 +15,15 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     private readonly authService: AuthService,
   ) {
     const githubConfig = config.get<any>('auth').strategies.github;
+    // passport-github2 types omit `store`; runtime passport-oauth2 supports it (#127)
     super({
       clientID: githubConfig.clientId,
       clientSecret: githubConfig.clientSecret,
       callbackURL: githubConfig.callbackUrl,
       scope: ['user:email'],
-    });
+      state: true,
+      store: new SignedCookieOAuthStateStore(resolveOAuthStateSecret()),
+    } as any);
   }
 
   async validate(

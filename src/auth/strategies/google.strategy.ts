@@ -3,6 +3,10 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigLoaderService } from '../../config/config-loader.service';
 import { AuthService } from '../auth.service';
+import {
+  SignedCookieOAuthStateStore,
+  resolveOAuthStateSecret,
+} from '../oauth-state.store';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -16,7 +20,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientSecret: googleConfig.clientSecret,
       callbackURL: googleConfig.callbackUrl,
       scope: ['email', 'profile'],
-    });
+      // CSRF: signed cookie state store — never Passport NullStore (#127)
+      state: true,
+      store: new SignedCookieOAuthStateStore(resolveOAuthStateSecret()),
+    } as any);
   }
 
   async validate(
