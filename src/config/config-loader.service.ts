@@ -118,6 +118,8 @@ export interface AuthKitConfig {
     webhooks: boolean;
     gdprTools: boolean;
     pwnedPasswordCheck: boolean;
+    /** When true (or NODE_ENV=production if unset), HIBP failures reject passwords (#159). */
+    pwnedPasswordFailClosed?: boolean;
   };
 }
 

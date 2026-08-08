@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import * as argon2 from 'argon2';
+import * as crypto from 'crypto';
 import { ConfigLoaderService } from '../config/config-loader.service';
 
 @Injectable()
@@ -75,11 +76,12 @@ export class PasswordService {
   }
 
   /**
-   * Check if a password has been compromised via HaveIBeenPwned k-anonymity API
+   * Check if a password has been compromised via HaveIBeenPwned k-anonymity API.
+   * Failures fail closed in production (or when features.pwnedPasswordFailClosed
+   * is true) so an unreachable HIBP cannot silently accept passwords (#159).
    */
   async isPwned(password: string): Promise<boolean> {
     try {
-      const crypto = require('crypto');
       const sha1 = crypto
         .createHash('sha1')
         .update(password)
@@ -92,7 +94,9 @@ export class PasswordService {
         `https://api.pwnedpasswords.com/range/${prefix}`,
         { headers: { 'Add-Padding': 'true' } },
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        return this.onPwnedCheckFailure(`HTTP ${response.status}`);
+      }
 
       const text = await response.text();
       const lines = text.split('\n');
@@ -101,8 +105,29 @@ export class PasswordService {
         return hash.trim() === suffix;
       });
     } catch (err) {
-      this.logger.warn('HaveIBeenPwned check failed (non-critical):', err);
-      return false;
+      if (err instanceof ServiceUnavailableException) throw err;
+      return this.onPwnedCheckFailure(err);
     }
+  }
+
+  /** Whether HIBP outages should reject password changes/registration. */
+  private shouldFailClosedOnPwnedError(): boolean {
+    const features = this.config.get<any>('features') ?? {};
+    if (typeof features.pwnedPasswordFailClosed === 'boolean') {
+      return features.pwnedPasswordFailClosed;
+    }
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private onPwnedCheckFailure(reason: unknown): boolean {
+    const detail =
+      reason instanceof Error ? reason.message : String(reason ?? 'unknown');
+    this.logger.warn(`HaveIBeenPwned check failed: ${detail}`);
+    if (this.shouldFailClosedOnPwnedError()) {
+      throw new ServiceUnavailableException(
+        'Password breach check temporarily unavailable. Please try again.',
+      );
+    }
+    return false;
   }
 }
