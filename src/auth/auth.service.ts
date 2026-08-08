@@ -46,6 +46,14 @@ export class AuthService {
     return methods.includes(method);
   }
 
+  /**
+   * Mandatory MFA must not lock roles out when enrollment is impossible (#144).
+   * Same flags as `isMfaMethodAllowed` — at least one method must be usable.
+   */
+  private isMfaEnrollmentPossible(): boolean {
+    return this.isMfaMethodAllowed('totp') || this.isMfaMethodAllowed('email');
+  }
+
   /** Sanitized DB profile for GET /auth/me (#78). */
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -406,11 +414,13 @@ export class AuthService {
   > {
     const mfaConfig = this.config.get<any>('mfa');
     const roleName = user.role?.name;
-    const mfaMandatory =
+    const policyRequiresMfa =
       mfaConfig?.required === true ||
       (Array.isArray(mfaConfig?.requiredForRoles) &&
         roleName != null &&
         mfaConfig.requiredForRoles.includes(roleName));
+    // Do not enforce mandatory MFA when enrollment/verification is disabled (#144).
+    const mfaMandatory = policyRequiresMfa && this.isMfaEnrollmentPossible();
 
     if (!user.isMfaEnabled && !mfaMandatory) {
       return { kind: 'ok' };
