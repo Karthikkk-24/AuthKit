@@ -68,21 +68,19 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    // API key scopes intersect RBAC (#66). Empty scopes = no extra restriction
-    // (legacy keys). Non-empty scopes must also cover every required permission.
+    // API key scopes intersect RBAC (#66, #113). Empty scopes deny-by-default —
+    // they must cover every required permission (no unrestricted legacy keys).
     if (user.isApiKeyAuth) {
       const scopes: string[] = Array.isArray(user.apiKeyScopes)
         ? user.apiKeyScopes
         : [];
-      if (scopes.length > 0) {
-        const missing = required.filter(
-          (req) => !this.isScopeGranted(scopes, req),
+      const missing = required.filter(
+        (req) => !this.isScopeGranted(scopes, req),
+      );
+      if (missing.length > 0) {
+        throw new ForbiddenException(
+          `API key scopes do not allow: ${missing.map((p) => `${p.action}:${p.resource}`).join(', ')}`,
         );
-        if (missing.length > 0) {
-          throw new ForbiddenException(
-            `API key scopes do not allow: ${missing.map((p) => `${p.action}:${p.resource}`).join(', ')}`,
-          );
-        }
       }
     }
 
