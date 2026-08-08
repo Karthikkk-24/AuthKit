@@ -45,6 +45,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     );
     const avatarUrl = photos?.[0]?.value;
 
+    if (!email || typeof email !== 'string') {
+      done(null, { oauthError: 'email_required' });
+      return;
+    }
+
     try {
       const user = await this.authService.findOrCreateOAuthUser({
         provider: 'google',
@@ -58,12 +63,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     } catch (err) {
       // Surface policy failures to the callback as a stable redirect reason (#88)
       if (err instanceof ForbiddenException) {
-        const msg = (err as any).message ?? '';
-        done(null, {
-          oauthError: String(msg).includes('verified')
-            ? 'email_unverified'
-            : 'registration_disabled',
-        });
+        const msg = String((err as any).message ?? '');
+        let oauthError = 'registration_disabled';
+        if (msg.includes('verified')) oauthError = 'email_unverified';
+        else if (msg.includes('email')) oauthError = 'email_required';
+        done(null, { oauthError });
         return;
       }
       if (err instanceof ConflictException) {
