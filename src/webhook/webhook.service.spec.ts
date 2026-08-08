@@ -79,3 +79,61 @@ describe('WebhookService.isPrivateIp IPv6 coverage (#81)', () => {
     expect(s.isPrivateIp('2001:4860:4860::8888')).toBe(false);
   });
 });
+
+describe('WebhookService DNS pin agent (#111)', () => {
+  function service() {
+    return new WebhookService({} as any, {
+      get: jest.fn(),
+      isFeatureEnabled: jest.fn(),
+    } as any);
+  }
+
+  it('pinned lookup returns the pre-validated address, not a rebind', () => {
+    const s = service() as any;
+    const agent = s.createPinnedAgent('https:', '203.0.113.10', 4);
+    const lookup = (agent as any).options.lookup as Function;
+
+    let resolved: any;
+    lookup('evil.example', {}, (err: Error | null, addr: string, family: number) => {
+      resolved = { err, addr, family };
+    });
+
+    expect(resolved.err).toBeNull();
+    expect(resolved.addr).toBe('203.0.113.10');
+    expect(resolved.family).toBe(4);
+  });
+
+  it('pinned lookup refuses if pinned address is private', () => {
+    const s = service() as any;
+    const agent = s.createPinnedAgent('http:', '10.0.0.1', 4);
+    const lookup = (agent as any).options.lookup as Function;
+
+    let resolved: any;
+    lookup('evil.example', {}, (err: Error | null) => {
+      resolved = { err };
+    });
+
+    expect(resolved.err).toBeInstanceOf(Error);
+    expect(String(resolved.err.message)).toMatch(/private/i);
+  });
+
+  it('resolveSafeWebhookTarget pins literal public IPs', async () => {
+    const s = service() as any;
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const target = await s.resolveSafeWebhookTarget('http://203.0.113.50/hook');
+      expect(target.address).toBe('203.0.113.50');
+      expect(target.family).toBe(4);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
+
+  it('resolveSafeWebhookTarget rejects literal private IPs', async () => {
+    const s = service() as any;
+    await expect(
+      s.resolveSafeWebhookTarget('https://10.0.0.5/hook'),
+    ).rejects.toThrow(/private/i);
+  });
+});

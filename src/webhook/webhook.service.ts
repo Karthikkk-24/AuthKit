@@ -8,6 +8,8 @@ import { PrismaService } from '../database/prisma/prisma.service';
 import { ConfigLoaderService } from '../config/config-loader.service';
 import * as crypto from 'crypto';
 import * as dns from 'dns/promises';
+import * as http from 'http';
+import * as https from 'https';
 import * as net from 'net';
 import axios from 'axios';
 
@@ -69,8 +71,10 @@ export class WebhookService {
   }
 
   private async deliver(endpoint: any, event: string, payload: any) {
+    let target: { url: URL; address: string; family: number };
     try {
-      await this.assertSafeWebhookUrl(endpoint.url);
+      // Resolve + classify once, then pin that address on the socket (#111).
+      target = await this.resolveSafeWebhookTarget(endpoint.url);
     } catch (err: any) {
       this.logger.warn(
         `Skipping webhook delivery to unsafe URL ${endpoint.url}: ${err?.message}`,
@@ -90,6 +94,11 @@ export class WebhookService {
     });
 
     const signature = this.sign(endpoint.secret, body);
+    const agent = this.createPinnedAgent(
+      target.url.protocol,
+      target.address,
+      target.family,
+    );
 
     let lastErr: any;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -104,6 +113,9 @@ export class WebhookService {
           timeout,
           maxRedirects: 0,
           validateStatus: (s) => s >= 200 && s < 300,
+          ...(target.url.protocol === 'https:'
+            ? { httpsAgent: agent }
+            : { httpAgent: agent }),
         });
 
         await this.prisma.webhookDelivery.create({
@@ -157,9 +169,19 @@ export class WebhookService {
 
   /**
    * Block SSRF to private/link-local/metadata hosts (#11).
-   * Re-checked at delivery time to mitigate DNS rebinding.
+   * Used at registration; delivery pins the resolved address (#111).
    */
   async assertSafeWebhookUrl(rawUrl: string): Promise<void> {
+    await this.resolveSafeWebhookTarget(rawUrl);
+  }
+
+  /**
+   * Validate URL policy, resolve DNS, and return a single safe address to pin
+   * on the outbound socket so a later rebind cannot reach private IPs (#111).
+   */
+  async resolveSafeWebhookTarget(
+    rawUrl: string,
+  ): Promise<{ url: URL; address: string; family: number }> {
     let parsed: URL;
     try {
       parsed = new URL(rawUrl);
@@ -198,14 +220,22 @@ export class WebhookService {
       throw new BadRequestException('Webhook URL host is not allowed');
     }
 
-    // Literal IP in hostname
-    if (net.isIP(hostname) && this.isPrivateIp(hostname)) {
-      throw new BadRequestException('Webhook URL must not target private IPs');
+    // Literal IP in hostname — pin that address after classification
+    const literalFamily = net.isIP(hostname);
+    if (literalFamily) {
+      if (this.isPrivateIp(hostname)) {
+        throw new BadRequestException('Webhook URL must not target private IPs');
+      }
+      return { url: parsed, address: hostname, family: literalFamily };
     }
 
-    // Resolve DNS and reject private answers
+    // Resolve DNS; reject if any answer is private (attacker-controlled multi-A),
+    // then pin the first public address for the TCP connect.
     try {
       const results = await dns.lookup(hostname, { all: true, verbatim: true });
+      if (!results.length) {
+        throw new BadRequestException('Unable to resolve webhook URL host');
+      }
       for (const r of results) {
         if (this.isPrivateIp(r.address)) {
           throw new BadRequestException(
@@ -213,10 +243,55 @@ export class WebhookService {
           );
         }
       }
+      const chosen = results[0];
+      return {
+        url: parsed,
+        address: chosen.address,
+        family: chosen.family,
+      };
     } catch (err: any) {
       if (err instanceof BadRequestException) throw err;
       throw new BadRequestException('Unable to resolve webhook URL host');
     }
+  }
+
+  /**
+   * HTTP(S) agent whose DNS lookup always returns the pre-validated address,
+   * closing the resolve-then-connect TOCTOU window (#111).
+   */
+  private createPinnedAgent(
+    protocol: string,
+    address: string,
+    family: number,
+  ): http.Agent | https.Agent {
+    const lookup = (
+      _hostname: string,
+      options: any,
+      callback?: (
+        err: NodeJS.ErrnoException | null,
+        address: string | Array<{ address: string; family: number }>,
+        family?: number,
+      ) => void,
+    ) => {
+      const cb = typeof options === 'function' ? options : callback!;
+
+      if (this.isPrivateIp(address)) {
+        cb(new Error('Refusing connection to private or reserved IP'));
+        return;
+      }
+
+      if (typeof options === 'object' && options?.all) {
+        cb(null, [{ address, family }]);
+        return;
+      }
+
+      cb(null, address, family);
+    };
+
+    if (protocol === 'https:') {
+      return new https.Agent({ lookup, keepAlive: false });
+    }
+    return new http.Agent({ lookup, keepAlive: false });
   }
 
   private isPrivateIp(ip: string): boolean {
