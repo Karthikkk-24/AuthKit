@@ -1071,6 +1071,19 @@ export class AuthService {
       );
     }
 
+    // Same domain allowlist as local registration (#155).
+    if (Array.isArray(regConfig.allowedDomains) && regConfig.allowedDomains.length > 0) {
+      const domain = profile.email.split('@')[1]?.toLowerCase();
+      const allowed = regConfig.allowedDomains.map((d: string) =>
+        String(d).toLowerCase(),
+      );
+      if (!domain || !allowed.includes(domain)) {
+        throw new ForbiddenException(
+          `Email domain @${domain ?? 'unknown'} is not allowed`,
+        );
+      }
+    }
+
     // Create new OAuth-only user
     const defaultRole = await this.prisma.role.findUnique({
       where: { name: regConfig.defaultRole || 'user' },
