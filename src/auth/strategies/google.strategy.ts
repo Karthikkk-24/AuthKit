@@ -33,7 +33,16 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     done: VerifyCallback,
   ): Promise<any> {
     const { id, emails, displayName, photos } = profile;
-    const email = emails?.[0]?.value;
+    // Prefer a provider-verified email (#149)
+    const verified =
+      emails?.find((e: any) => e?.verified === true || e?.verified === 'true') ??
+      null;
+    const email = verified?.value ?? emails?.[0]?.value;
+    const emailVerified = Boolean(
+      verified?.value ||
+        emails?.[0]?.verified === true ||
+        emails?.[0]?.verified === 'true',
+    );
     const avatarUrl = photos?.[0]?.value;
 
     try {
@@ -41,6 +50,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         provider: 'google',
         providerId: id,
         email,
+        emailVerified,
         name: displayName,
         avatarUrl,
       });
@@ -48,7 +58,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     } catch (err) {
       // Surface policy failures to the callback as a stable redirect reason (#88)
       if (err instanceof ForbiddenException) {
-        done(null, { oauthError: 'registration_disabled' });
+        const msg = (err as any).message ?? '';
+        done(null, {
+          oauthError: String(msg).includes('verified')
+            ? 'email_unverified'
+            : 'registration_disabled',
+        });
         return;
       }
       if (err instanceof ConflictException) {

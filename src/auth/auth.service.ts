@@ -1014,6 +1014,7 @@ export class AuthService {
     provider: 'google' | 'github';
     providerId: string;
     email: string;
+    emailVerified?: boolean;
     name: string;
     avatarUrl?: string;
   }) {
@@ -1027,6 +1028,19 @@ export class AuthService {
 
     if (user) {
       return user;
+    }
+
+    if (!profile.email || typeof profile.email !== 'string') {
+      throw new ForbiddenException(
+        'OAuth provider did not return an email address',
+      );
+    }
+
+    // New accounts require a provider-verified email (#149).
+    if (!profile.emailVerified) {
+      throw new ForbiddenException(
+        'OAuth email is not verified with the identity provider. Verify the email with Google/GitHub, then try again.',
+      );
     }
 
     if (profile.email) {
@@ -1071,7 +1085,8 @@ export class AuthService {
         email: profile.email,
         name: profile.name,
         avatarUrl: profile.avatarUrl,
-        emailVerifiedAt: new Date(), // OAuth emails are pre-verified by the provider
+        // Only set after provider-verified check above (#149)
+        emailVerifiedAt: new Date(),
         roleId: defaultRole.id,
         [providerField]: profile.providerId,
       },
