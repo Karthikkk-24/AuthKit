@@ -13,7 +13,9 @@ import { PrismaService } from '../database/prisma/prisma.service';
 import { TokenBlacklistService } from '../auth/token-blacklist.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
 
 @ApiTags('Health')
 @Controller('health')
@@ -35,10 +37,11 @@ export class HealthController {
     return { status: 'ok' };
   }
 
-  /** Authenticated readiness with DB/Redis/heap/disk detail (#77). */
+  /** Authenticated readiness with DB/Redis/heap/disk detail (#77, #134). */
   @Get('ready')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles('superadmin', 'admin')
+  @RequirePermissions({ action: 'read', resource: 'settings' })
   @HealthCheck()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Readiness / diagnostics (admin)' })
