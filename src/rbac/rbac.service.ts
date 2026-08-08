@@ -370,7 +370,14 @@ export class RbacService {
     });
     if (existing) throw new ConflictException('Permission already exists');
 
-    const created = await this.prisma.permission.create({ data: dto });
+    const created = await this.prisma.permission.create({
+      // Permission model has no description field — ignore DTO.description (#120).
+      data: {
+        roleId: dto.roleId,
+        action: dto.action,
+        resource: dto.resource,
+      },
+    });
 
     await this.audit.log({
       action: 'permission.created',
