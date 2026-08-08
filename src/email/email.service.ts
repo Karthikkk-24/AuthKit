@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigLoaderService } from '../config/config-loader.service';
+import { getRequestId } from '../common/request-context';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -75,7 +76,7 @@ export class EmailService {
     if (emailConfig.provider === 'smtp' && this.transporter) {
       await this.transporter.sendMail({ from, to, subject, html });
     } else if (emailConfig.provider === 'sendgrid') {
-      await fetch('https://api.sendgrid.com/v3/mail/send', {
+      const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${emailConfig.sendgrid.apiKey}`,
@@ -88,8 +89,9 @@ export class EmailService {
           content: [{ type: 'text/html', value: html }],
         }),
       });
+      await this.assertProviderOk('sendgrid', response);
     } else if (emailConfig.provider === 'resend') {
-      await fetch('https://api.resend.com/emails', {
+      const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${emailConfig.resend.apiKey}`,
@@ -97,7 +99,31 @@ export class EmailService {
         },
         body: JSON.stringify({ from, to, subject, html }),
       });
+      await this.assertProviderOk('resend', response);
     }
+  }
+
+  /** Surface non-2xx provider responses so callers do not claim mail was sent (#157). */
+  private async assertProviderOk(
+    provider: string,
+    response: Response,
+  ): Promise<void> {
+    if (response.ok) return;
+    const requestId = getRequestId();
+    let bodySnippet = '';
+    try {
+      bodySnippet = (await response.text()).slice(0, 200);
+    } catch {
+      // ignore body read failures
+    }
+    this.logger.error(
+      `Email provider ${provider} returned HTTP ${response.status}` +
+        (requestId ? ` requestId=${requestId}` : '') +
+        (bodySnippet ? ` body=${bodySnippet}` : ''),
+    );
+    throw new Error(
+      `Email provider ${provider} failed with HTTP ${response.status}`,
+    );
   }
 
   private getBaseTemplate(content: string, title: string): string {
