@@ -1098,6 +1098,24 @@ export class AuthService {
     return stored; // legacy plaintext
   }
 
+  /** HMAC-SHA256 digest for MFA backup codes (#148). */
+  private hashBackupCode(code: string): string {
+    return this.cryptoService.hmacSha256(code.trim().toLowerCase());
+  }
+
+  /** Constant-time index lookup for stored backup-code digests (#148). */
+  private findBackupCodeIndex(stored: string[], candidateHash: string): number {
+    let found = -1;
+    const cand = Buffer.from(candidateHash);
+    for (let i = 0; i < stored.length; i++) {
+      const row = Buffer.from(stored[i] ?? '');
+      if (row.length === cand.length && crypto.timingSafeEqual(row, cand)) {
+        found = i;
+      }
+    }
+    return found;
+  }
+
   async setupTotp(userId: string, currentMfaCode?: string) {
     if (!this.isMfaMethodAllowed('totp')) {
       throw new BadRequestException('TOTP MFA is disabled');
@@ -1166,17 +1184,15 @@ export class AuthService {
     });
     if (!valid) throw new BadRequestException('Invalid TOTP code');
 
-    // Generate backup codes
+    // Generate backup codes — ≥64 bits entropy + HMAC-SHA256 (not unsalted SHA-256) (#148)
     const mfaConfig = this.config.get<any>('mfa');
     const backupCodes: string[] = [];
     const hashedBackupCodes: string[] = [];
 
     for (let i = 0; i < (mfaConfig.backupCodesCount || 10); i++) {
-      const code = crypto.randomBytes(4).toString('hex');
-      backupCodes.push(code);
-      hashedBackupCodes.push(
-        crypto.createHash('sha256').update(code).digest('hex'),
-      );
+      const backup = crypto.randomBytes(8).toString('hex'); // 64 bits
+      backupCodes.push(backup);
+      hashedBackupCodes.push(this.hashBackupCode(backup));
     }
 
     await this.prisma.$transaction([
@@ -1204,8 +1220,13 @@ export class AuthService {
     }
 
     if (isBackupCode) {
-      const hash = crypto.createHash('sha256').update(code).digest('hex');
-      const idx = cred.backupCodes.indexOf(hash);
+      const hash = this.hashBackupCode(code);
+      // Legacy unsalted SHA-256 digests from before #148
+      const legacyHash = crypto.createHash('sha256').update(code).digest('hex');
+      let idx = this.findBackupCodeIndex(cred.backupCodes, hash);
+      if (idx === -1) {
+        idx = this.findBackupCodeIndex(cred.backupCodes, legacyHash);
+      }
       if (idx === -1) throw new UnauthorizedException('Invalid backup code');
 
       // Single-use: remove the code

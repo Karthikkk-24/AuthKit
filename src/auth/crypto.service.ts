@@ -66,4 +66,9 @@ export class CryptoService {
     const dec = Buffer.concat([decipher.update(Buffer.from(dataB64, 'base64')), decipher.final()]);
     return dec.toString('utf8');
   }
+
+  /** HMAC-SHA256 hex digest keyed by AUTHKIT_SECRET_KEY (#148). */
+  hmacSha256(data: string): string {
+    return crypto.createHmac('sha256', this.getKey()).update(data, 'utf8').digest('hex');
+  }
 }
