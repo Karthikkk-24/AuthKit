@@ -41,6 +41,12 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     const email = verified?.value ?? emails.find((e) => e?.primary)?.value ?? emails[0]?.value;
     const emailVerified = Boolean(verified?.value);
 
+    if (!email || typeof email !== 'string') {
+      // Stable redirect — GitHub apps need user:email + a visible address (#150).
+      done(null, { oauthError: 'email_required' });
+      return;
+    }
+
     try {
       const user = await this.authService.findOrCreateOAuthUser({
         provider: 'github',
@@ -54,12 +60,11 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     } catch (err) {
       // Surface policy failures to the callback as a stable redirect reason (#88)
       if (err instanceof ForbiddenException) {
-        const msg = (err as any).message ?? '';
-        done(null, {
-          oauthError: String(msg).includes('verified')
-            ? 'email_unverified'
-            : 'registration_disabled',
-        });
+        const msg = String((err as any).message ?? '');
+        let oauthError = 'registration_disabled';
+        if (msg.includes('verified')) oauthError = 'email_unverified';
+        else if (msg.includes('email')) oauthError = 'email_required';
+        done(null, { oauthError });
         return;
       }
       if (err instanceof ConflictException) {
