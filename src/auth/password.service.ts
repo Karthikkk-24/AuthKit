@@ -5,6 +5,8 @@ import { ConfigLoaderService } from '../config/config-loader.service';
 @Injectable()
 export class PasswordService {
   private readonly logger = new Logger(PasswordService.name);
+  /** Cached Argon2id hash used to equalize login timing for unknown users (#128). */
+  private dummyHashPromise: Promise<string> | null = null;
 
   constructor(private readonly config: ConfigLoaderService) {}
 
@@ -29,6 +31,18 @@ export class PasswordService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Run Argon2 verify against a dummy hash so missing/OAuth-only accounts
+   * take similar time to password accounts (#128).
+   */
+  async verifyDummy(password: string): Promise<void> {
+    if (!this.dummyHashPromise) {
+      this.dummyHashPromise = this.hash('__authkit_timing_dummy__');
+    }
+    const dummy = await this.dummyHashPromise;
+    await this.verify(dummy, password);
   }
 
   /**
