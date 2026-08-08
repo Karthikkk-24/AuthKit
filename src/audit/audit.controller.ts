@@ -16,6 +16,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { escapeCsvField } from './csv-escape';
 
 @ApiTags('Audit Logs')
 @ApiBearerAuth()
@@ -87,12 +88,9 @@ export class AuditController {
     res.end();
   }
 
-  // RFC 4180: wrap fields in quotes and double inner quotes.
+  // RFC 4180 + formula-injection neutralization (#156).
   private csvField(value: unknown): string {
-    if (value === null || value === undefined) return '""';
-    const str =
-      typeof value === 'object' ? JSON.stringify(value) : String(value);
-    return `"${str.replace(/"/g, '""')}"`;
+    return escapeCsvField(value);
   }
 
   private toCsvHeader(): string {
