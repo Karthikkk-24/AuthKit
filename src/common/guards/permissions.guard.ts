@@ -30,11 +30,8 @@ export class PermissionsGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new UnauthorizedException();
 
-    // Fetch role with permissions (using Prisma)
-    const role = await this.prisma.role.findUnique({
-      where: { id: user.roleId },
-      include: { permissions: true, parent: { include: { permissions: true } } },
-    });
+    // Load full role ancestor chain (not just one parent level) (#118).
+    const role = await this.loadRoleWithAncestors(user.roleId);
 
     if (!role) throw new ForbiddenException('Role not found');
 
@@ -85,6 +82,32 @@ export class PermissionsGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  /**
+   * Load role + permissions and iteratively attach parents so deep hierarchies
+   * are fully available to collectPermissions (#118).
+   */
+  private async loadRoleWithAncestors(roleId: string): Promise<any | null> {
+    const root = await this.prisma.role.findUnique({
+      where: { id: roleId },
+      include: { permissions: true },
+    });
+    if (!root) return null;
+
+    let cursor: any = root;
+    const visited = new Set<string>([root.id]);
+    while (cursor.parentId && !visited.has(cursor.parentId)) {
+      visited.add(cursor.parentId);
+      const parent = await this.prisma.role.findUnique({
+        where: { id: cursor.parentId },
+        include: { permissions: true },
+      });
+      if (!parent) break;
+      cursor.parent = parent;
+      cursor = parent;
+    }
+    return root;
   }
 
   private collectPermissions(
