@@ -249,7 +249,7 @@ export class AuthService {
       return null; // OAuth-only account
     }
 
-    // Check account lock
+    // Check account lock — do not disclose lock state/reason/expiry (#115).
     if (user.isLocked) {
       const lockConfig = this.config.get<any>('security').accountLockout;
       const lockExpiry = user.lockedAt
@@ -263,9 +263,8 @@ export class AuthService {
           reason: 'account_locked',
           req,
         });
-        throw new ForbiddenException(
-          `Account is locked${lockExpiry ? ` until ${lockExpiry.toISOString()}` : ''}. Reason: ${user.lockReason || 'Too many failed attempts'}`,
-        );
+        // Same client-visible outcome as unknown user / bad password.
+        return null;
       }
 
       // Auto-unlock after duration
