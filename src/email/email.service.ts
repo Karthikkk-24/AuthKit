@@ -170,6 +170,25 @@ export class EmailService {
     await this.send(to, 'Verify your email address', html);
   }
 
+  /** Notify an existing user that someone tried to register their email (#116). */
+  async sendAccountAlreadyRegistered(to: string, name: string): Promise<void> {
+    const loginUrl = `${this.getFrontendUrl()}/login`;
+    const html = this.getBaseTemplate(
+      `
+      <h2 style="color:#fff;font-size:24px;font-weight:700;margin:0 0 16px;">Account already exists</h2>
+      <p style="color:#a1a1aa;font-size:16px;line-height:1.6;margin:0 0 32px;">
+        Hi ${this.escapeHtml(name)}, someone tried to create an account using this email address.
+        If that was you, sign in instead. If not, you can ignore this message.
+      </p>
+      <a href="${loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;text-decoration:none;padding:16px 40px;border-radius:12px;font-size:16px;font-weight:700;">
+        Sign in
+      </a>
+      `,
+      'Account already exists',
+    );
+    await this.send(to, 'Account already registered', html);
+  }
+
   async sendPasswordReset(to: string, name: string, token: string): Promise<void> {
     const resetUrl = `${this.getFrontendUrl()}/reset-password?token=${encodeURIComponent(token)}`;
     const html = this.getBaseTemplate(

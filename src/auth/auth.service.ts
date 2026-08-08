@@ -99,13 +99,11 @@ export class AuthService {
     }
 
     // Check existing user — soft-deleted rows must not block re-registration (#114).
+    // Active emails must not return 409 (enumeration) (#116).
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (existing) {
-      if (!existing.deletedAt) {
-        throw new ConflictException('Email is already registered');
-      }
+    if (existing?.deletedAt) {
       await this.prisma.user.update({
         where: { id: existing.id },
         data: {
@@ -116,7 +114,7 @@ export class AuthService {
       });
     }
 
-    // Validate password strength
+    // Validate password strength (same checks whether or not email exists)
     const { valid, errors } = this.passwordService.validateStrength(dto.password);
     if (!valid) {
       throw new BadRequestException(errors.join('; '));
@@ -130,6 +128,31 @@ export class AuthService {
           'This password has been found in data breaches. Please choose a different password.',
         );
       }
+    }
+
+    const successMessage = this.isEmailVerificationEnforced()
+      ? 'Registration successful. Please check your email to verify your account.'
+      : 'Registration successful.';
+
+    if (existing && !existing.deletedAt) {
+      // Match create-path work roughly; do not disclose that the email exists (#116).
+      await this.passwordService.hash(dto.password);
+      void this.email
+        .sendAccountAlreadyRegistered(existing.email, existing.name)
+        .catch((err) => {
+          this.logger.warn(
+            `Failed to send already-registered notice: ${err?.message ?? err}`,
+          );
+        });
+      await this.audit.log({
+        action: 'auth.register',
+        userId: existing.id,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        success: false,
+        metadata: { reason: 'email_exists' },
+      });
+      return { message: successMessage };
     }
 
     // Get or create default role
@@ -171,11 +194,7 @@ export class AuthService {
       name: user.name,
     });
 
-    return {
-      message: this.isEmailVerificationEnforced()
-        ? 'Registration successful. Please check your email to verify your account.'
-        : 'Registration successful.',
-    };
+    return { message: successMessage };
   }
 
   // ─────────────────────────────────────────────────────────────────────
