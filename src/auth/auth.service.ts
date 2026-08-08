@@ -255,10 +255,12 @@ export class AuthService {
     });
 
     if (!user || user.deletedAt) {
+      await this.passwordService.verifyDummy(password);
       await this.auditFailedLogin({ email, reason: 'unknown_user', req });
       return null;
     }
     if (!user.passwordHash) {
+      await this.passwordService.verifyDummy(password);
       await this.auditFailedLogin({
         email,
         userId: user.id,
