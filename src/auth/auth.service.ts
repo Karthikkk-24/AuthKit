@@ -584,8 +584,11 @@ export class AuthService {
       throw new UnauthorizedException('Account is not allowed to sign in');
     }
 
-    // Atomically claim the token before verifying MFA so concurrent requests
-    // with the same mfaToken cannot mint two sessions (#60 review).
+    // Verify MFA before burning the token so a typo does not force full
+    // OAuth/magic-link restart (#138). Concurrent success is still single-shot
+    // via the atomic claim below; /auth/mfa/complete remains throttled.
+    await this.verifyMfaWithFallback(record.user.id, mfaCode);
+
     const claimed = await this.prisma.emailVerification.updateMany({
       where: {
         id: record.id,
@@ -597,14 +600,6 @@ export class AuthService {
     });
     if (claimed.count !== 1) {
       throw new BadRequestException('MFA token already used or expired');
-    }
-
-    try {
-      await this.verifyMfaWithFallback(record.user.id, mfaCode);
-    } catch (err) {
-      // Invalid code: leave token marked used (one-shot) so attackers cannot
-      // brute-force against a live mfaToken. Client must restart first-factor auth.
-      throw err;
     }
 
     return this.createTokens(record.user, req);
